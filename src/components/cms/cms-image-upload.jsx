@@ -1,0 +1,320 @@
+"use client";
+
+import { useRef, useState, useCallback } from "react";
+import Cropper from "react-easy-crop";
+import { UploadIcon, Cross1Icon } from "@radix-ui/react-icons";
+import { adminCmsApi } from "@/lib/endpoints";
+import { useToast } from "@/context/toast-context";
+
+const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+];
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+
+const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
+
+function getCroppedBlob(imageSrc, pixelCrop, mimeType = "image/jpeg") {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = pixelCrop.width;
+      canvas.height = pixelCrop.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(
+        img,
+        pixelCrop.x,
+        pixelCrop.y,
+        pixelCrop.width,
+        pixelCrop.height,
+        0,
+        0,
+        pixelCrop.width,
+        pixelCrop.height
+      );
+      canvas.toBlob((blob) => resolve(blob), mimeType, 0.92);
+    };
+    img.src = imageSrc;
+  });
+}
+
+// Human-readable ratio label from a decimal aspect ratio
+function ratioLabel(ar) {
+  const KNOWN = [
+    [16, 9],
+    [3, 1],
+    [5, 4],
+    [12, 5],
+    [1, 1],
+    [9, 13],
+    [4, 3],
+    [3, 2],
+  ];
+  for (const [w, h] of KNOWN) {
+    if (Math.abs(ar - w / h) < 0.02) return `${w}:${h}`;
+  }
+  return `${Math.round(ar * 100) / 100}:1`;
+}
+
+export default function CmsImageUpload({
+  value,
+  onChange,
+  label,
+  type = "image",
+  aspectRatio,
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const inputRef = useRef(null);
+  const { showToast } = useToast();
+
+  // Crop state
+  const [cropSrc, setCropSrc] = useState(null);
+  const [cropFile, setCropFile] = useState(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+
+  const onCropComplete = useCallback((_, croppedPixels) => {
+    setCroppedAreaPixels(croppedPixels);
+  }, []);
+
+  const isVideo = type === "video";
+  const allowedTypes = isVideo ? ALLOWED_VIDEO_TYPES : ALLOWED_IMAGE_TYPES;
+  const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+  const acceptStr = isVideo
+    ? "video/mp4,video/webm,video/quicktime"
+    : "image/jpeg,image/png,image/webp";
+
+  function validateFile(file) {
+    if (!allowedTypes.includes(file.type)) {
+      showToast(
+        isVideo
+          ? "Only MP4, WebM, MOV videos allowed"
+          : "Only JPEG, PNG, WebP images allowed",
+        "error"
+      );
+      return false;
+    }
+    if (file.size > maxSize) {
+      showToast(`File too large. Max ${isVideo ? "50MB" : "5MB"}`, "error");
+      return false;
+    }
+    return true;
+  }
+
+  function handleFileSelect(file) {
+    if (!validateFile(file)) return;
+
+    // If it's an image with an aspect ratio, open crop modal
+    if (!isVideo && aspectRatio) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setCropSrc(reader.result);
+        setCropFile(file);
+        setCrop({ x: 0, y: 0 });
+        setZoom(1);
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    // Otherwise upload directly
+    uploadFile(file);
+  }
+
+  async function uploadFile(fileOrBlob, originalFile) {
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      if (isVideo) {
+        formData.append("video", fileOrBlob);
+      } else {
+        const name = originalFile?.name || fileOrBlob.name || "image.jpg";
+        formData.append("image", fileOrBlob, name);
+      }
+      const result = isVideo
+        ? await adminCmsApi.uploadVideo(formData)
+        : await adminCmsApi.uploadImage(formData);
+      onChange(result);
+    } catch {
+      showToast("Upload failed", "error");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleCropConfirm() {
+    if (!cropSrc || !croppedAreaPixels) return;
+    const mimeType = cropFile?.type || "image/jpeg";
+    const blob = await getCroppedBlob(cropSrc, croppedAreaPixels, mimeType);
+    setCropSrc(null);
+    uploadFile(blob, cropFile);
+    setCropFile(null);
+  }
+
+  function handleCropCancel() {
+    setCropSrc(null);
+    setCropFile(null);
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFileSelect(file);
+  }
+
+  function handleRemove() {
+    onChange(null);
+  }
+
+  const hasValue = value?.url;
+
+  return (
+    <>
+      <div className="flex flex-col items-start gap-1.5">
+        {label && (
+          <label className="text-xs font-medium text-zinc-500">
+            {label}
+            {aspectRatio && (
+              <span className="ml-1.5 text-zinc-400 font-normal">
+                ({ratioLabel(aspectRatio)})
+              </span>
+            )}
+          </label>
+        )}
+
+        {hasValue ? (
+          <div className="group relative">
+            {isVideo ? (
+              <video
+                src={value.url}
+                className="h-32 w-48 rounded-lg border border-zinc-200 object-cover"
+                muted
+                playsInline
+                preload="metadata"
+              />
+            ) : (
+              <img
+                src={value.url}
+                alt={label || "CMS image"}
+                className="h-32 w-auto rounded-lg border border-zinc-200 object-cover"
+              />
+            )}
+            <button
+              type="button"
+              onClick={handleRemove}
+              className="absolute top-1 right-1 rounded-full bg-black/50 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100"
+            >
+              <Cross1Icon className="h-3 w-3" />
+            </button>
+          </div>
+        ) : (
+          <div
+            className={`flex w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 transition-colors ${
+              dragOver
+                ? "border-zinc-500 bg-zinc-50"
+                : "border-zinc-300 hover:border-zinc-400"
+            } ${uploading ? "pointer-events-none opacity-50" : ""}`}
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+          >
+            <UploadIcon className="mb-1.5 h-5 w-5 text-zinc-400" />
+            <p className="text-sm text-zinc-500">
+              {uploading
+                ? "Uploading..."
+                : isVideo
+                  ? "Drop video or click to browse"
+                  : "Drop image or click to browse"}
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-400">
+              {isVideo
+                ? "MP4, WebM, MOV. Max 50MB"
+                : "JPEG, PNG, WebP. Max 5MB"}
+            </p>
+            <input
+              ref={inputRef}
+              type="file"
+              accept={acceptStr}
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFileSelect(file);
+                e.target.value = "";
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Crop Modal */}
+      {cropSrc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="relative flex w-full max-w-xl flex-col rounded-xl bg-white shadow-xl">
+            <div className="border-b border-zinc-200 px-5 py-3">
+              <h3 className="text-sm font-semibold text-zinc-900">
+                Crop Image
+              </h3>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Adjust the crop area to fit the required{" "}
+                {ratioLabel(aspectRatio)} ratio
+              </p>
+            </div>
+            <div className="relative h-80 bg-zinc-100">
+              <Cropper
+                image={cropSrc}
+                crop={crop}
+                zoom={zoom}
+                aspect={aspectRatio}
+                onCropChange={setCrop}
+                onZoomChange={setZoom}
+                onCropComplete={onCropComplete}
+              />
+            </div>
+            <div className="px-5 py-2">
+              <label className="flex items-center gap-3 text-xs text-zinc-500">
+                Zoom
+                <input
+                  type="range"
+                  min={1}
+                  max={3}
+                  step={0.05}
+                  value={zoom}
+                  onChange={(e) => setZoom(Number(e.target.value))}
+                  className="flex-1 accent-zinc-900"
+                />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3">
+              <button
+                type="button"
+                onClick={handleCropCancel}
+                className="rounded-lg border border-zinc-200 px-4 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCropConfirm}
+                className="rounded-lg bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-800"
+              >
+                Crop & Upload
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
