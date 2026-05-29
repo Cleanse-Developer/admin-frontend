@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { Cross1Icon } from "@radix-ui/react-icons";
+import { useState, useRef } from "react";
+import { Cross1Icon, Cross2Icon, UploadIcon } from "@radix-ui/react-icons";
 import { adminCategoryApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
+import ImageCropper from "@/components/image-cropper";
+
+function toImageState(url) {
+  return url ? { url, isNew: false } : null;
+}
 
 export default function CategoryForm({ category, onClose, onSuccess }) {
   const { showToast } = useToast();
@@ -12,10 +17,11 @@ export default function CategoryForm({ category, onClose, onSuccess }) {
   const [form, setForm] = useState({
     name: category?.name || "",
     description: category?.description || "",
-    image: category?.image || "",
     sortOrder: category?.sortOrder ?? 0,
     isActive: category?.isActive ?? true,
   });
+  const [bannerTop, setBannerTop] = useState(toImageState(category?.bannerTop));
+  const [bannerBottom, setBannerBottom] = useState(toImageState(category?.bannerBottom));
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -23,6 +29,16 @@ export default function CategoryForm({ category, onClose, onSuccess }) {
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
+
+  function appendBanner(fd, field, value, hadValue) {
+    if (value?.isNew && value.file) {
+      fd.append(field, value.file);
+    } else if (value && !value.isNew) {
+      fd.append(field, value.url);
+    } else if (!value && hadValue) {
+      fd.append(field, "");
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -34,19 +50,20 @@ export default function CategoryForm({ category, onClose, onSuccess }) {
     setSaving(true);
     setError("");
 
-    const payload = {
-      name: form.name.trim(),
-      description: form.description.trim(),
-      image: form.image.trim(),
-      sortOrder: Number(form.sortOrder) || 0,
-    };
+    const fd = new FormData();
+    fd.append("name", form.name.trim());
+    fd.append("description", form.description.trim());
+    fd.append("sortOrder", String(Number(form.sortOrder) || 0));
+    if (isEdit) fd.append("isActive", String(form.isActive));
+    appendBanner(fd, "bannerTop", bannerTop, isEdit && !!category?.bannerTop);
+    appendBanner(fd, "bannerBottom", bannerBottom, isEdit && !!category?.bannerBottom);
 
     try {
       if (isEdit) {
-        await adminCategoryApi.update(category._id, { ...payload, isActive: form.isActive });
+        await adminCategoryApi.update(category._id, fd);
         showToast("Category updated", "success");
       } else {
-        await adminCategoryApi.create(payload);
+        await adminCategoryApi.create(fd);
         showToast("Category created", "success");
       }
       onSuccess();
@@ -108,17 +125,28 @@ export default function CategoryForm({ category, onClose, onSuccess }) {
             />
           </div>
 
-          {/* Image URL */}
+          {/* Banners */}
           <div>
             <label className="block text-sm font-medium text-zinc-700 mb-1">
-              Image URL <span className="font-normal text-zinc-400">(optional)</span>
+              Top Banner <span className="font-normal text-zinc-400">(spotlight, wide)</span>
             </label>
-            <input
-              type="text"
-              value={form.image}
-              onChange={(e) => handleChange("image", e.target.value)}
-              placeholder="https://…"
-              className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors"
+            <BannerUpload
+              value={bannerTop}
+              onChange={setBannerTop}
+              aspect={16 / 9}
+              title="Crop top banner (16:9)"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Bottom Banner <span className="font-normal text-zinc-400">(side, tall)</span>
+            </label>
+            <BannerUpload
+              value={bannerBottom}
+              onChange={setBannerBottom}
+              aspect={2 / 3}
+              title="Crop bottom banner (2:3)"
             />
           </div>
 
@@ -174,5 +202,80 @@ export default function CategoryForm({ category, onClose, onSuccess }) {
         </form>
       </div>
     </div>
+  );
+}
+
+function BannerUpload({ value, onChange, aspect, title }) {
+  const inputRef = useRef(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [pendingFile, setPendingFile] = useState(null);
+
+  function handleFile(file) {
+    if (!file) return;
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowed.includes(file.type)) return;
+    if (file.size > 5 * 1024 * 1024) return;
+    setPendingFile(file);
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setIsDragging(false);
+    handleFile(e.dataTransfer.files?.[0]);
+  }
+
+  return (
+    <>
+      {value ? (
+        <div className="relative inline-block overflow-hidden rounded-lg border border-zinc-200">
+          <img src={value.url} alt="" className="h-40 w-full max-w-md object-cover" />
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="absolute right-2 top-2 rounded-full bg-white/90 p-1 text-zinc-600 shadow hover:bg-white hover:text-red-600"
+          >
+            <Cross2Icon className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        <div
+          onClick={() => inputRef.current?.click()}
+          onDrop={handleDrop}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          className={`flex h-32 max-w-md cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed transition-colors ${
+            isDragging
+              ? "border-zinc-400 bg-zinc-50"
+              : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50"
+          }`}
+        >
+          <UploadIcon className="h-6 w-6 text-zinc-400" />
+          <span className="text-sm text-zinc-500">Drop or click to upload</span>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(e) => handleFile(e.target.files?.[0])}
+          />
+        </div>
+      )}
+
+      {pendingFile && (
+        <ImageCropper
+          file={pendingFile}
+          aspect={aspect}
+          title={title}
+          onCropped={(croppedFile) => {
+            onChange({ url: URL.createObjectURL(croppedFile), file: croppedFile, isNew: true });
+            setPendingFile(null);
+          }}
+          onCancel={() => setPendingFile(null)}
+        />
+      )}
+    </>
   );
 }

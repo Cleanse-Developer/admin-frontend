@@ -26,6 +26,10 @@ function formatDiscount(coupon) {
   return "—";
 }
 
+function isExpired(coupon) {
+  return !!coupon.validTill && new Date(coupon.validTill).getTime() < Date.now();
+}
+
 export default function CouponsPage() {
   const { showToast } = useToast();
   const [coupons, setCoupons] = useState([]);
@@ -111,6 +115,11 @@ export default function CouponsPage() {
     setEditCoupon(null);
     fetchCoupons();
   };
+
+  // Active (non-expired) first, expired last; stable within each group.
+  const sortedCoupons = [...coupons].sort(
+    (a, b) => Number(isExpired(a)) - Number(isExpired(b))
+  );
 
   return (
     <div>
@@ -202,7 +211,7 @@ export default function CouponsPage() {
                 </tr>
               </thead>
               <tbody>
-                {coupons.map((coupon) => (
+                {sortedCoupons.map((coupon) => (
                   <tr key={coupon._id} className="border-b border-zinc-50 hover:bg-zinc-50/50 transition-colors">
                     <td className="px-4 py-3 font-medium text-zinc-900 font-mono">{coupon.code}</td>
                     <td className="px-4 py-3 text-zinc-600 max-w-[200px] truncate">
@@ -234,7 +243,7 @@ export default function CouponsPage() {
                         : "—"}
                     </td>
                     <td className="px-4 py-3">
-                      {coupon.validTill && new Date(coupon.validTill) < new Date() ? (
+                      {isExpired(coupon) ? (
                         <StatusBadge expired />
                       ) : (
                         <button onClick={() => handleToggleActive(coupon)}>

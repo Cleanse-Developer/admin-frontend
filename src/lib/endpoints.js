@@ -29,10 +29,18 @@ export const adminProductApi = {
 
 export const adminCategoryApi = {
   list: () => api.get("/admin/categories").then((r) => r.data.data),
-  create: (data) =>
-    api.post("/admin/categories", data).then((r) => r.data.data),
-  update: (id, data) =>
-    api.patch(`/admin/categories/${id}`, data).then((r) => r.data.data),
+  create: (formData) =>
+    api
+      .post("/admin/categories", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((r) => r.data.data),
+  update: (id, formData) =>
+    api
+      .patch(`/admin/categories/${id}`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((r) => r.data.data),
   delete: (id) => api.delete(`/admin/categories/${id}`).then((r) => r.data),
 };
 

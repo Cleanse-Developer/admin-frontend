@@ -66,6 +66,7 @@ export default function NewsletterPage() {
     note: "No spam, unsubscribe anytime.",
     image: null,
     delaySeconds: 8,
+    discountPercent: 10,
   });
   const [configLoading, setConfigLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
@@ -735,6 +736,23 @@ export default function NewsletterPage() {
           <div className="rounded-xl border border-zinc-200 bg-white p-5">
             <h2 className="text-base font-semibold text-zinc-900 mb-4">Popup Behavior</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 mb-1.5">
+                  Discount Percent (%)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={config.discountPercent}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, discountPercent: e.target.value }))}
+                  placeholder="e.g. 10"
+                  className={inputClass}
+                />
+                <p className="text-xs text-zinc-400 mt-1">
+                  Discount % of the coupon emailed to new subscribers
+                </p>
+              </div>
               <div>
                 <label className="block text-xs font-medium text-zinc-500 mb-1.5">
                   Popup Delay (seconds)
