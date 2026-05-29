@@ -234,9 +234,13 @@ export default function CouponsPage() {
                         : "—"}
                     </td>
                     <td className="px-4 py-3">
-                      <button onClick={() => handleToggleActive(coupon)}>
-                        <StatusBadge active={coupon.isActive} />
-                      </button>
+                      {coupon.validTill && new Date(coupon.validTill) < new Date() ? (
+                        <StatusBadge expired />
+                      ) : (
+                        <button onClick={() => handleToggleActive(coupon)}>
+                          <StatusBadge active={coupon.isActive} />
+                        </button>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">

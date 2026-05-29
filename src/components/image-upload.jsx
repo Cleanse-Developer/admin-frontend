@@ -1,14 +1,28 @@
 "use client";
 
 import { useRef, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import {
   UploadIcon,
   Cross1Icon,
   StarIcon,
   StarFilledIcon,
+  ImageIcon,
 } from "@radix-ui/react-icons";
 import { useToast } from "@/context/toast-context";
 import ImageCropper from "@/components/image-cropper";
+import ResponsiveVariants, { BREAKPOINTS } from "@/components/responsive-variants";
+
+const countVariants = (sources) =>
+  sources ? BREAKPOINTS.filter(({ key }) => sources[key]?.url).length : 0;
+
+const revokeVariantBlobs = (sources) => {
+  if (!sources) return;
+  for (const { key } of BREAKPOINTS) {
+    const v = sources[key];
+    if (v?.isNew && v.url) URL.revokeObjectURL(v.url);
+  }
+};
 
 const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 const MAX_SIZE = 5 * 1024 * 1024; // 5MB
@@ -16,6 +30,7 @@ const MAX_SIZE = 5 * 1024 * 1024; // 5MB
 export default function ImageUpload({ images = [], onChange, maxImages = 5 }) {
   const [dragOver, setDragOver] = useState(false);
   const [cropFile, setCropFile] = useState(null);
+  const [variantsFor, setVariantsFor] = useState(null); // index of image whose dialog is open
   const pendingQueue = useRef([]);
   const inputRef = useRef(null);
   const { showToast } = useToast();
@@ -99,6 +114,7 @@ export default function ImageUpload({ images = [], onChange, maxImages = 5 }) {
     if (img.isNew && img.url) {
       URL.revokeObjectURL(img.url);
     }
+    revokeVariantBlobs(img.sources);
     const updated = images.filter((_, i) => i !== index);
     if (img.isPrimary && updated.length > 0) {
       updated[0] = { ...updated[0], isPrimary: true };
@@ -111,6 +127,13 @@ export default function ImageUpload({ images = [], onChange, maxImages = 5 }) {
       ...img,
       isPrimary: i === index,
     }));
+    onChange(updated);
+  }
+
+  function handleVariantsChange(index, sources) {
+    const updated = images.map((img, i) =>
+      i === index ? { ...img, sources } : img
+    );
     onChange(updated);
   }
 
@@ -194,6 +217,21 @@ export default function ImageUpload({ images = [], onChange, maxImages = 5 }) {
                 <Cross1Icon className="h-3 w-3" />
               </button>
 
+              {/* Responsive variants button */}
+              <button
+                type="button"
+                onClick={() => setVariantsFor(index)}
+                className={`absolute bottom-1 right-1 flex items-center gap-1 rounded-full px-1.5 py-1 text-[10px] font-medium ${
+                  countVariants(img.sources) > 0
+                    ? "bg-zinc-900 text-white"
+                    : "bg-black/40 text-white opacity-0 group-hover:opacity-100"
+                }`}
+                title="Responsive variants"
+              >
+                <ImageIcon className="h-3 w-3" />
+                {countVariants(img.sources) > 0 && countVariants(img.sources)}
+              </button>
+
               {/* New badge */}
               {img.isNew && (
                 <span className="absolute top-1 left-1 rounded bg-blue-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
@@ -213,6 +251,37 @@ export default function ImageUpload({ images = [], onChange, maxImages = 5 }) {
           onCancel={handleSkipCrop}
         />
       )}
+
+      {/* Responsive variants dialog */}
+      <Dialog.Root
+        open={variantsFor !== null}
+        onOpenChange={(open) => !open && setVariantsFor(null)}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(90vw,520px)] -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between">
+              <Dialog.Title className="text-base font-semibold text-zinc-900">
+                Responsive variants
+              </Dialog.Title>
+              <Dialog.Close className="rounded p-1 text-zinc-400 hover:text-zinc-700">
+                <Cross1Icon className="h-4 w-4" />
+              </Dialog.Close>
+            </div>
+            <Dialog.Description className="mt-1 text-sm text-zinc-500">
+              Upload alternate media for specific screen sizes for this image.
+            </Dialog.Description>
+            <div className="mt-4">
+              {variantsFor !== null && (
+                <ResponsiveVariants
+                  value={images[variantsFor]?.sources || {}}
+                  onChange={(sources) => handleVariantsChange(variantsFor, sources)}
+                />
+              )}
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

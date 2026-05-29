@@ -97,6 +97,17 @@ function initSizes(d) {
   }));
 }
 
+const BREAKPOINT_KEYS = ["desktop", "tablet", "mobile"];
+
+function initSources(s) {
+  const out = {};
+  if (!s) return out;
+  for (const bp of BREAKPOINT_KEYS) {
+    if (s[bp]) out[bp] = { url: s[bp], isNew: false };
+  }
+  return out;
+}
+
 function initImages(d) {
   if (!d?.images?.length) return [];
   return d.images.map((img) => ({
@@ -104,6 +115,7 @@ function initImages(d) {
     alt: img.alt || "",
     isPrimary: img.isPrimary || false,
     isNew: false,
+    sources: initSources(img.sources),
   }));
 }
 
@@ -221,20 +233,38 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
       fd.append("tabHighlights", JSON.stringify(tabHighlights));
     }
 
-    // Images
-    if (isEdit) {
-      // Send existing images (filtered, with updated isPrimary) as JSON
-      const existingImages = images
-        .filter((img) => !img.isNew)
-        .map((img) => ({ url: img.url, alt: img.alt, isPrimary: img.isPrimary }));
-      fd.append("images", JSON.stringify(existingImages));
-    }
+    // Images: a metadata array describing every image (kept + new) plus the new
+    // base/variant files appended under unique keys the metadata references.
+    const meta = images.map((img, i) => {
+      const entry = { alt: img.alt || "", isPrimary: !!img.isPrimary };
 
-    // Append new image files
-    const newFiles = images.filter((img) => img.isNew && img.file);
-    for (const img of newFiles) {
-      fd.append("images", img.file);
-    }
+      if (img.isNew && img.file) {
+        const key = `img_${i}_base`;
+        fd.append(key, img.file);
+        entry.fileKey = key;
+        entry.url = null;
+      } else {
+        entry.url = img.url;
+      }
+
+      const sources = {};
+      const s = img.sources || {};
+      for (const bp of BREAKPOINT_KEYS) {
+        const v = s[bp];
+        if (!v || !v.url) continue;
+        if (v.isNew && v.file) {
+          const vkey = `img_${i}_${bp}`;
+          fd.append(vkey, v.file);
+          sources[bp] = { fileKey: vkey };
+        } else {
+          sources[bp] = { url: v.url };
+        }
+      }
+      if (Object.keys(sources).length) entry.sources = sources;
+
+      return entry;
+    });
+    fd.append("images", JSON.stringify(meta));
 
     return fd;
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import Cropper from "react-easy-crop";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
@@ -41,12 +41,31 @@ function getCroppedBlob(imageSrc, pixelCrop) {
   });
 }
 
-export default function ImageCropper({ file, onCropped, onCancel }) {
+export default function ImageCropper({
+  file,
+  onCropped,
+  onCancel,
+  aspect = 3 / 4,
+  title = "Crop to portrait (3:4)",
+}) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [isCropping, setIsCropping] = useState(false);
   const croppedPixelsRef = useRef(null);
   const [imageSrc] = useState(() => URL.createObjectURL(file));
+  const [naturalAspect, setNaturalAspect] = useState(null);
+
+  // aspect === null => free crop: use the image's own ratio so the whole image is
+  // selected by default (no forced reshape), while zoom/pan still work.
+  const freeCrop = aspect === null;
+  useEffect(() => {
+    if (!freeCrop) return;
+    const im = new Image();
+    im.onload = () => setNaturalAspect(im.naturalWidth / im.naturalHeight);
+    im.src = imageSrc;
+  }, [freeCrop, imageSrc]);
+
+  const effectiveAspect = freeCrop ? naturalAspect || 1 : aspect;
 
   const onCropComplete = useCallback((_, croppedPixels) => {
     croppedPixelsRef.current = croppedPixels;
@@ -89,7 +108,7 @@ export default function ImageCropper({ file, onCropped, onCancel }) {
           <div className="flex items-center justify-between bg-zinc-900 px-4 py-3">
             <div className="flex items-center gap-3">
               <h3 className="text-sm font-medium text-white">
-                Crop to portrait (3:4)
+                {title}
               </h3>
               <span className="rounded bg-zinc-700 px-2 py-0.5 text-[11px] text-zinc-300">
                 {file.name}
@@ -110,7 +129,7 @@ export default function ImageCropper({ file, onCropped, onCancel }) {
               image={imageSrc}
               crop={crop}
               zoom={zoom}
-              aspect={3 / 4}
+              aspect={effectiveAspect}
               onCropChange={setCrop}
               onZoomChange={setZoom}
               onCropComplete={onCropComplete}

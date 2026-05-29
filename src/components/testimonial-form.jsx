@@ -6,6 +6,33 @@ import * as Select from "@radix-ui/react-select";
 import * as Switch from "@radix-ui/react-switch";
 import { ChevronDownIcon, CheckIcon, UploadIcon, Cross2Icon } from "@radix-ui/react-icons";
 import { useToast } from "@/context/toast-context";
+import ResponsiveVariants, { BREAKPOINTS } from "@/components/responsive-variants";
+
+const capBp = (bp) => bp.charAt(0).toUpperCase() + bp.slice(1);
+
+function sourcesFromData(s) {
+  const out = {};
+  if (!s) return out;
+  for (const { key } of BREAKPOINTS) {
+    if (s[key]) out[key] = { url: s[key], isNew: false };
+  }
+  return out;
+}
+
+function appendSources(fd, fieldPrefix, sources) {
+  const meta = {};
+  for (const { key } of BREAKPOINTS) {
+    const v = sources?.[key];
+    if (v?.isNew && v.file) {
+      fd.append(`${fieldPrefix}${capBp(key)}`, v.file);
+    } else if (v?.url) {
+      meta[key] = v.url;
+    } else {
+      meta[key] = null;
+    }
+  }
+  fd.append(`${fieldPrefix}Sources`, JSON.stringify(meta));
+}
 
 const TYPE_OPTIONS = [
   { value: "review", label: "Review", hint: "Carousel only" },
@@ -33,6 +60,8 @@ export default function TestimonialForm({ initialData, onSubmit, isSubmitting })
   const [errors, setErrors] = useState({});
   const [beforeImage, setBeforeImage] = useState(null); // { url, file?, isNew }
   const [afterImage, setAfterImage] = useState(null);
+  const [beforeImageSources, setBeforeImageSources] = useState({});
+  const [afterImageSources, setAfterImageSources] = useState({});
 
   // Populate form in edit mode
   useEffect(() => {
@@ -54,6 +83,8 @@ export default function TestimonialForm({ initialData, onSubmit, isSubmitting })
     if (initialData.afterImage) {
       setAfterImage({ url: initialData.afterImage, isNew: false });
     }
+    setBeforeImageSources(sourcesFromData(initialData.beforeImageSources));
+    setAfterImageSources(sourcesFromData(initialData.afterImageSources));
   }, [initialData]);
 
   const setField = useCallback((name, value) => {
@@ -110,6 +141,9 @@ export default function TestimonialForm({ initialData, onSubmit, isSubmitting })
     } else if (!afterImage && isEdit && initialData?.afterImage) {
       fd.append("afterImage", "");
     }
+
+    appendSources(fd, "beforeImage", beforeImageSources);
+    appendSources(fd, "afterImage", afterImageSources);
 
     return fd;
   }
@@ -306,16 +340,42 @@ export default function TestimonialForm({ initialData, onSubmit, isSubmitting })
           Upload before and after photos. JPEG, PNG, or WebP, max 5MB each.
         </p>
         <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2">
-          <SingleImageUpload
-            label="Before Image"
-            image={beforeImage}
-            onChange={setBeforeImage}
-          />
-          <SingleImageUpload
-            label="After Image"
-            image={afterImage}
-            onChange={setAfterImage}
-          />
+          <div className="flex flex-col gap-3">
+            <SingleImageUpload
+              label="Before Image"
+              image={beforeImage}
+              onChange={setBeforeImage}
+            />
+            <div className="border-t border-zinc-100 pt-3">
+              <h3 className="text-xs font-medium text-zinc-700">
+                Before — responsive variants
+              </h3>
+              <div className="mt-2">
+                <ResponsiveVariants
+                  value={beforeImageSources}
+                  onChange={setBeforeImageSources}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-3">
+            <SingleImageUpload
+              label="After Image"
+              image={afterImage}
+              onChange={setAfterImage}
+            />
+            <div className="border-t border-zinc-100 pt-3">
+              <h3 className="text-xs font-medium text-zinc-700">
+                After — responsive variants
+              </h3>
+              <div className="mt-2">
+                <ResponsiveVariants
+                  value={afterImageSources}
+                  onChange={setAfterImageSources}
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

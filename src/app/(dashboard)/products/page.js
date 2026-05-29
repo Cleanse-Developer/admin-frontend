@@ -11,6 +11,7 @@ import {
   StarFilledIcon,
   DotsVerticalIcon,
   CrossCircledIcon,
+  ResetIcon,
 } from "@radix-ui/react-icons";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
@@ -65,6 +66,7 @@ export default function ProductsPage() {
   const [products, setProducts] = useState([]);
   const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 20, pages: 0 });
   const [isLoading, setIsLoading] = useState(true);
+  const [view, setView] = useState("active");
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -90,6 +92,7 @@ export default function ProductsPage() {
       if (debouncedSearch) params.search = debouncedSearch;
       if (tagFilter !== "all") params.tag = tagFilter;
       if (statusFilter !== "all") params.status = statusFilter;
+      if (view === "deleted") params.deleted = true;
 
       const data = await adminProductApi.list(params);
 
@@ -108,7 +111,7 @@ export default function ProductsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [debouncedSearch, tagFilter, statusFilter, sortField, sortDir, showToast]);
+  }, [debouncedSearch, tagFilter, statusFilter, view, sortField, sortDir, showToast]);
 
   // Clear selections when filters/search change
   useEffect(() => {
@@ -168,6 +171,25 @@ export default function ProductsPage() {
     }
   }
 
+  // Restore handler
+  async function handleRestore(product) {
+    try {
+      await adminProductApi.restore(product._id);
+      showToast(`"${product.name}" restored`, "success");
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(product._id);
+        return next;
+      });
+      fetchProducts(pagination.page);
+    } catch (err) {
+      showToast(
+        err.response?.data?.message || "Failed to restore product",
+        "error"
+      );
+    }
+  }
+
   // Toggle featured
   async function toggleFeatured(product) {
     try {
@@ -195,6 +217,7 @@ export default function ProductsPage() {
       await Promise.all(
         ids.map((id) => {
           if (action === "delete") return adminProductApi.delete(id);
+          if (action === "restore") return adminProductApi.restore(id);
           const formData = new FormData();
           if (action === "activate") formData.append("isActive", true);
           if (action === "deactivate") formData.append("isActive", false);
@@ -285,6 +308,15 @@ export default function ProductsPage() {
           <StatusBadge active={product.isActive} />
         </td>
         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+          {view === "deleted" ? (
+            <button
+              onClick={() => handleRestore(product)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200"
+            >
+              <ResetIcon className="h-4 w-4" />
+              Restore
+            </button>
+          ) : (
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
               <button className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600">
@@ -326,6 +358,7 @@ export default function ProductsPage() {
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
+          )}
         </td>
       </tr>
     );
@@ -343,6 +376,30 @@ export default function ProductsPage() {
           <PlusIcon className="h-4 w-4" />
           Add Product
         </Link>
+      </div>
+
+      {/* View tabs */}
+      <div className="flex items-center gap-1 border-b border-zinc-200">
+        <button
+          onClick={() => setView("active")}
+          className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+            view === "active"
+              ? "border-zinc-900 text-zinc-900"
+              : "border-transparent text-zinc-500 hover:text-zinc-700"
+          }`}
+        >
+          Products
+        </button>
+        <button
+          onClick={() => setView("deleted")}
+          className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+            view === "deleted"
+              ? "border-zinc-900 text-zinc-900"
+              : "border-transparent text-zinc-500 hover:text-zinc-700"
+          }`}
+        >
+          Deleted
+        </button>
       </div>
 
       {/* Toolbar */}
@@ -404,24 +461,35 @@ export default function ProductsPage() {
           <span className="text-sm font-medium text-zinc-700">
             {selected.size} selected
           </span>
-          <button
-            onClick={() => bulkAction("activate")}
-            className="rounded-lg bg-green-50 px-3 py-1.5 text-sm font-medium text-green-700 transition-colors hover:bg-green-100"
-          >
-            Activate
-          </button>
-          <button
-            onClick={() => bulkAction("deactivate")}
-            className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200"
-          >
-            Deactivate
-          </button>
-          <button
-            onClick={() => setBulkDeleteOpen(true)}
-            className="rounded-lg bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-100"
-          >
-            Delete
-          </button>
+          {view === "deleted" ? (
+            <button
+              onClick={() => bulkAction("restore")}
+              className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200"
+            >
+              Restore
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => bulkAction("activate")}
+                className="rounded-lg bg-green-50 px-3 py-1.5 text-sm font-medium text-green-700 transition-colors hover:bg-green-100"
+              >
+                Activate
+              </button>
+              <button
+                onClick={() => bulkAction("deactivate")}
+                className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200"
+              >
+                Deactivate
+              </button>
+              <button
+                onClick={() => setBulkDeleteOpen(true)}
+                className="rounded-lg bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-100"
+              >
+                Delete
+              </button>
+            </>
+          )}
           <button
             onClick={() => setSelected(new Set())}
             className="ml-2 rounded p-1 text-zinc-400 hover:text-zinc-600"
@@ -438,7 +506,7 @@ export default function ProductsPage() {
           if (!open) setDeleteTarget(null);
         }}
         title="Delete Product"
-        description={`Are you sure you want to delete "${deleteTarget?.name}"? This will deactivate the product.`}
+        description={`Are you sure you want to delete "${deleteTarget?.name}"? This moves it to Deleted — you can restore it later.`}
         onConfirm={handleDelete}
         loading={deleteLoading}
       />
@@ -448,7 +516,7 @@ export default function ProductsPage() {
         open={bulkDeleteOpen}
         onOpenChange={setBulkDeleteOpen}
         title="Delete Products"
-        description={`Are you sure you want to delete ${selected.size} product(s)? This will deactivate them.`}
+        description={`Are you sure you want to delete ${selected.size} product(s)? This moves them to Deleted — you can restore them later.`}
         onConfirm={handleBulkDelete}
         loading={bulkDeleteLoading}
       />

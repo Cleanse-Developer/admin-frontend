@@ -14,6 +14,35 @@ import {
 } from "@radix-ui/react-icons";
 import { useToast } from "@/context/toast-context";
 import { adminBlogApi } from "@/lib/endpoints";
+import ResponsiveVariants, { BREAKPOINTS } from "@/components/responsive-variants";
+
+const capBp = (bp) => bp.charAt(0).toUpperCase() + bp.slice(1);
+
+function sourcesFromData(s) {
+  const out = {};
+  if (!s) return out;
+  for (const { key } of BREAKPOINTS) {
+    if (s[key]) out[key] = { url: s[key], isNew: false };
+  }
+  return out;
+}
+
+// Append per-breakpoint variant files (fieldPrefix + Desktop/Tablet/Mobile) and a
+// JSON map of kept/cleared variant URLs (fieldPrefix + "Sources") to FormData.
+function appendSources(fd, fieldPrefix, sources) {
+  const meta = {};
+  for (const { key } of BREAKPOINTS) {
+    const v = sources?.[key];
+    if (v?.isNew && v.file) {
+      fd.append(`${fieldPrefix}${capBp(key)}`, v.file);
+    } else if (v?.url) {
+      meta[key] = v.url;
+    } else {
+      meta[key] = null;
+    }
+  }
+  fd.append(`${fieldPrefix}Sources`, JSON.stringify(meta));
+}
 
 const CATEGORY_OPTIONS = [
   { value: "Hair Care", label: "Hair Care" },
@@ -43,6 +72,7 @@ export default function BlogForm({ initialData, onSubmit, isSubmitting }) {
   const [form, setForm] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState({});
   const [image, setImage] = useState(null);
+  const [imageSources, setImageSources] = useState({});
   const [authors, setAuthors] = useState([]);
   const [tagInput, setTagInput] = useState("");
 
@@ -71,6 +101,7 @@ export default function BlogForm({ initialData, onSubmit, isSubmitting }) {
     if (initialData.image) {
       setImage({ url: initialData.image, isNew: false });
     }
+    setImageSources(sourcesFromData(initialData.imageSources));
   }, [initialData]);
 
   const setField = useCallback((name, value) => {
@@ -119,6 +150,8 @@ export default function BlogForm({ initialData, onSubmit, isSubmitting }) {
     } else if (!image && isEdit && initialData?.image) {
       fd.append("image", "");
     }
+
+    appendSources(fd, "image", imageSources);
 
     return fd;
   }
@@ -336,6 +369,14 @@ export default function BlogForm({ initialData, onSubmit, isSubmitting }) {
         <p className="mt-1 text-sm text-zinc-500">JPEG, PNG, or WebP, max 5MB.</p>
         <div className="mt-4">
           <SingleImageUpload image={image} onChange={setImage} />
+        </div>
+        <div className="mt-5 border-t border-zinc-100 pt-4">
+          <h3 className="text-sm font-medium text-zinc-700">
+            Responsive variants
+          </h3>
+          <div className="mt-2">
+            <ResponsiveVariants value={imageSources} onChange={setImageSources} />
+          </div>
         </div>
       </div>
 

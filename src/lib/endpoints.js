@@ -23,10 +23,17 @@ export const adminProductApi = {
       })
       .then((r) => r.data.data),
   delete: (id) => api.delete(`/admin/products/${id}`).then((r) => r.data),
+  restore: (id) =>
+    api.patch(`/admin/products/${id}/restore`).then((r) => r.data),
 };
 
 export const adminCategoryApi = {
   list: () => api.get("/admin/categories").then((r) => r.data.data),
+  create: (data) =>
+    api.post("/admin/categories", data).then((r) => r.data.data),
+  update: (id, data) =>
+    api.patch(`/admin/categories/${id}`, data).then((r) => r.data.data),
+  delete: (id) => api.delete(`/admin/categories/${id}`).then((r) => r.data),
 };
 
 export const adminTestimonialApi = {
