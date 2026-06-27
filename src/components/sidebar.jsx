@@ -41,6 +41,7 @@ const NAV_ITEMS = [
   { href: "/referrals", label: "Referrals", icon: Share1Icon },
   { href: "/reviews", label: "Reviews", icon: CommentIcon },
   { href: "/newsletter", label: "Newsletter", icon: EnvelopeClosedIcon },
+  { href: "/whatsapp-automation", label: "WhatsApp Automation", icon: ChatBubbleIcon },
   { href: "/shipping", label: "Shipping", icon: RocketIcon },
   { href: "/settings", label: "Settings", icon: GearIcon },
 ];

@@ -6,6 +6,22 @@ export const adminAuthApi = {
   logout: () => api.post("/admin/auth/logout").then((r) => r.data),
 };
 
+export const adminWhatsAppApi = {
+  // Returns slide's { data: [...templates], meta } payload.
+  listTemplates: (params) =>
+    api.get("/admin/whatsapp/templates", { params }).then((r) => r.data.data),
+  // Returns slide's { data: [...logs], meta } payload.
+  getLogs: (params) =>
+    api.get("/admin/whatsapp/logs", { params }).then((r) => r.data.data),
+  // body: { to, templateName, languageCode, components? }
+  sendTemplate: (body) =>
+    api.post("/admin/whatsapp/send", body).then((r) => r.data.data),
+  confirmCod: (orderId) =>
+    api.post(`/admin/whatsapp/orders/${orderId}/confirm`).then((r) => r.data.data),
+  cancelCod: (orderId, reason) =>
+    api.post(`/admin/whatsapp/orders/${orderId}/cancel`, { reason }).then((r) => r.data.data),
+};
+
 export const adminProductApi = {
   list: (params) =>
     api.get("/admin/products", { params }).then((r) => r.data.data),
@@ -75,8 +91,59 @@ export const adminOrderApi = {
       .then((r) => r.data.data),
   addNote: (id, note) =>
     api.patch(`/admin/orders/${id}/notes`, { note }).then((r) => r.data.data),
-  refund: (id, amount) =>
-    api.post(`/admin/orders/${id}/refund`, { amount }).then((r) => r.data.data),
+  refund: (id, amount, reason) =>
+    api
+      .post(`/admin/orders/${id}/refund`, { amount, reason })
+      .then((r) => r.data.data),
+  approveReturn: (id, action, note) =>
+    api
+      .patch(`/admin/orders/${id}/return`, { action, note })
+      .then((r) => r.data.data),
+};
+
+// Per-order + account-level Shiprocket operations
+export const adminShiprocketApi = {
+  // per-order (return updated order in r.data.data.order)
+  sync: (id) =>
+    api.post(`/admin/orders/${id}/shiprocket/sync`).then((r) => r.data.data),
+  assignAwb: (id, courierId) =>
+    api
+      .post(`/admin/orders/${id}/shiprocket/assign-awb`, { courierId })
+      .then((r) => r.data.data),
+  pickup: (id) =>
+    api.post(`/admin/orders/${id}/shiprocket/pickup`).then((r) => r.data.data),
+  label: (id) =>
+    api.post(`/admin/orders/${id}/shiprocket/label`).then((r) => r.data.data),
+  manifest: (id) =>
+    api.post(`/admin/orders/${id}/shiprocket/manifest`).then((r) => r.data.data),
+  invoice: (id) =>
+    api.post(`/admin/orders/${id}/shiprocket/invoice`).then((r) => r.data.data),
+  cancel: (id) =>
+    api.post(`/admin/orders/${id}/shiprocket/cancel`).then((r) => r.data.data),
+  track: (id) =>
+    api.get(`/admin/orders/${id}/shiprocket/track`).then((r) => r.data.data),
+  ndr: (id, action, comments) =>
+    api
+      .post(`/admin/orders/${id}/shiprocket/ndr`, { action, comments })
+      .then((r) => r.data.data),
+  createReturn: (id) =>
+    api.post(`/admin/orders/${id}/shiprocket/return`).then((r) => r.data.data),
+  serviceability: (id) =>
+    api
+      .get(`/admin/orders/${id}/shiprocket/serviceability`)
+      .then((r) => r.data.data),
+  // account-level
+  listPickup: () =>
+    api.get("/admin/shiprocket/pickup").then((r) => r.data.data),
+  addPickup: (data) =>
+    api.post("/admin/shiprocket/pickup", data).then((r) => r.data.data),
+  couriers: () =>
+    api.get("/admin/shiprocket/couriers").then((r) => r.data.data),
+  wallet: () => api.get("/admin/shiprocket/wallet").then((r) => r.data.data),
+  checkServiceability: (pincode, cod, weight) =>
+    api
+      .post("/admin/shiprocket/serviceability", { pincode, cod, weight })
+      .then((r) => r.data.data),
 };
 
 export const adminBundleApi = {
