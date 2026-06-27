@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { PlusIcon, TrashIcon } from "@radix-ui/react-icons";
-import { adminSettingsApi } from "@/lib/endpoints";
+import { PlusIcon, TrashIcon, ReloadIcon } from "@radix-ui/react-icons";
+import { adminSettingsApi, adminShiprocketApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
 
 const DEFAULTS = {
@@ -587,6 +587,239 @@ export default function SettingsPage() {
             {saving ? "Saving..." : "Save Settings"}
           </button>
         </div>
+
+        {/* Shiprocket */}
+        <ShiprocketSettings inputClass={inputClass} />
+      </div>
+    </div>
+  );
+}
+
+function ShiprocketSettings({ inputClass }) {
+  const { showToast } = useToast();
+  const [wallet, setWallet] = useState(null);
+  const [pickup, setPickup] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Add-pickup form
+  const emptyPickup = {
+    pickup_location: "",
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    address_2: "",
+    city: "",
+    state: "",
+    country: "India",
+    pin_code: "",
+  };
+  const [form, setForm] = useState(emptyPickup);
+  const [adding, setAdding] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+
+  // Serviceability checker
+  const [svcPin, setSvcPin] = useState("");
+  const [svcCod, setSvcCod] = useState(true);
+  const [svcResult, setSvcResult] = useState(null);
+  const [svcLoading, setSvcLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [w, p] = await Promise.all([
+        adminShiprocketApi.wallet().catch(() => null),
+        adminShiprocketApi.listPickup().catch(() => null),
+      ]);
+      setWallet(w?.balance ?? null);
+      const list = p?.pickup?.shipping_address || p?.pickup || [];
+      setPickup(Array.isArray(list) ? list : []);
+    } catch {
+      showToast("Failed to load Shiprocket data", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const addPickup = async () => {
+    if (!form.pickup_location || !form.pin_code || !form.phone) {
+      showToast("Nickname, pincode and phone are required", "error");
+      return;
+    }
+    setAdding(true);
+    try {
+      await adminShiprocketApi.addPickup(form);
+      showToast("Pickup location added — verify it in Shiprocket before shipping", "success");
+      setForm(emptyPickup);
+      setShowForm(false);
+      load();
+    } catch (err) {
+      showToast(err?.response?.data?.message || "Failed to add pickup", "error");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const checkSvc = async () => {
+    if (!/^\d{6}$/.test(svcPin)) {
+      showToast("Enter a valid 6-digit pincode", "error");
+      return;
+    }
+    setSvcLoading(true);
+    setSvcResult(null);
+    try {
+      const data = await adminShiprocketApi.checkServiceability(svcPin, svcCod ? 1 : 0, 0.5);
+      setSvcResult(data.serviceability);
+    } catch (err) {
+      showToast(err?.response?.data?.message || "Serviceability check failed", "error");
+    } finally {
+      setSvcLoading(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-6 space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-zinc-900">Shiprocket</h2>
+          <p className="text-sm text-zinc-500 mt-0.5">Account, pickup addresses & serviceability</p>
+        </div>
+        <button
+          onClick={load}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50"
+        >
+          <ReloadIcon className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+        </button>
+      </div>
+
+      {/* Wallet */}
+      <div className="rounded-lg border border-zinc-200 p-4 flex items-center justify-between">
+        <span className="text-sm text-zinc-500">Wallet balance</span>
+        <span className="text-lg font-semibold text-zinc-900">
+          {wallet === null ? "—" : `₹${Number(wallet).toLocaleString("en-IN")}`}
+        </span>
+      </div>
+
+      {/* Pickup locations */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Pickup locations</h3>
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="inline-flex items-center gap-1 text-xs text-zinc-600 hover:text-zinc-900"
+          >
+            <PlusIcon className="h-3.5 w-3.5" /> Add
+          </button>
+        </div>
+        <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
+          {pickup.length === 0 ? (
+            <p className="p-4 text-sm text-zinc-400">No pickup locations.</p>
+          ) : (
+            pickup.map((p, i) => (
+              <div key={i} className="flex items-center justify-between p-3">
+                <div>
+                  <p className="text-sm font-medium text-zinc-900">
+                    {p.pickup_location}
+                    {p.is_primary_location ? (
+                      <span className="ml-2 rounded-full bg-green-50 px-1.5 py-0.5 text-[10px] text-green-700">primary</span>
+                    ) : null}
+                  </p>
+                  <p className="text-xs text-zinc-400">
+                    {[p.city, p.state, p.pin_code].filter(Boolean).join(", ")}
+                  </p>
+                </div>
+                <span className="text-[10px] text-zinc-400">status {p.status}</span>
+              </div>
+            ))
+          )}
+        </div>
+
+        {showForm && (
+          <div className="rounded-lg border border-zinc-200 p-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                ["pickup_location", "Nickname *"],
+                ["name", "Contact name"],
+                ["phone", "Phone *"],
+                ["email", "Email"],
+                ["address", "Address"],
+                ["address_2", "Address 2"],
+                ["city", "City"],
+                ["state", "State"],
+                ["pin_code", "Pincode *"],
+                ["country", "Country"],
+              ].map(([key, label]) => (
+                <div key={key}>
+                  <label className="block text-xs font-medium text-zinc-500 mb-1">{label}</label>
+                  <input
+                    type="text"
+                    value={form[key]}
+                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={addPickup}
+              disabled={adding}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+            >
+              {adding ? <ReloadIcon className="h-3.5 w-3.5 animate-spin" /> : <PlusIcon className="h-3.5 w-3.5" />}
+              Add pickup location
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Serviceability checker */}
+      <div className="space-y-2">
+        <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Serviceability checker</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            value={svcPin}
+            onChange={(e) => setSvcPin(e.target.value)}
+            placeholder="Delivery pincode"
+            className="w-40 rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+          />
+          <label className="flex items-center gap-1.5 text-sm text-zinc-600">
+            <input type="checkbox" checked={svcCod} onChange={(e) => setSvcCod(e.target.checked)} />
+            COD
+          </label>
+          <button
+            onClick={checkSvc}
+            disabled={svcLoading}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {svcLoading ? <ReloadIcon className="h-3.5 w-3.5 animate-spin" /> : null} Check
+          </button>
+        </div>
+        {svcResult && (
+          <div className="rounded-lg border border-zinc-200 p-3">
+            {svcResult.available ? (
+              <>
+                <p className="text-sm text-green-700 mb-2">
+                  Serviceable · est. {svcResult.estimatedDays} days
+                </p>
+                <div className="space-y-1">
+                  {(svcResult.couriers || []).slice(0, 8).map((c, i) => (
+                    <div key={i} className="flex justify-between text-xs text-zinc-600">
+                      <span>{c.name}</span>
+                      <span>₹{c.rate} · {c.estimatedDays}d</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-red-600">Not serviceable to this pincode.</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

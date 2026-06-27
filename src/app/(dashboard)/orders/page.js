@@ -18,7 +18,7 @@ import {
 import * as Dialog from "@radix-ui/react-dialog";
 import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
 import * as Tabs from "@radix-ui/react-tabs";
-import { adminOrderApi } from "@/lib/endpoints";
+import { adminOrderApi, adminShiprocketApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
 import { useDebounce } from "@/lib/use-debounce";
 import DataTable from "@/components/data-table";
@@ -37,9 +37,12 @@ const ORDER_STATUSES = [
   { value: "out_for_delivery", label: "Out for Delivery" },
   { value: "delivered", label: "Delivered" },
   { value: "cancelled", label: "Cancelled" },
+  { value: "rto_in_transit", label: "RTO In Transit" },
+  { value: "rto_delivered", label: "RTO Delivered" },
   { value: "return_requested", label: "Return Requested" },
   { value: "return_approved", label: "Return Approved" },
   { value: "returned", label: "Returned" },
+  { value: "refund_initiated", label: "Refund Initiated" },
   { value: "refunded", label: "Refunded" },
 ];
 
@@ -51,18 +54,23 @@ const PAYMENT_STATUSES = [
   { value: "refunded", label: "Refunded" },
 ];
 
+// Mirrors backend VALID_TRANSITIONS (admin/order.controller.js).
 const VALID_TRANSITIONS = {
   pending: ["confirmed", "cancelled"],
   confirmed: ["processing", "cancelled"],
   processing: ["packed", "cancelled"],
   packed: ["shipped", "cancelled"],
-  shipped: ["in_transit"],
-  in_transit: ["out_for_delivery"],
-  out_for_delivery: ["delivered"],
+  shipped: ["in_transit", "rto_in_transit"],
+  in_transit: ["out_for_delivery", "rto_in_transit"],
+  out_for_delivery: ["delivered", "rto_in_transit"],
   delivered: ["return_requested"],
+  rto_in_transit: ["rto_delivered"],
+  rto_delivered: ["refund_initiated"],
   return_requested: ["return_approved", "delivered"],
   return_approved: ["returned"],
-  returned: ["refunded"],
+  returned: ["refund_initiated"],
+  refund_initiated: ["refunded"],
+  cancelled: ["refund_initiated"],
 };
 
 function statusColor(status) {
@@ -73,7 +81,11 @@ function statusColor(status) {
       return "bg-red-50 text-red-700";
     case "refunded":
     case "returned":
+    case "refund_initiated":
       return "bg-zinc-100 text-zinc-600";
+    case "rto_in_transit":
+    case "rto_delivered":
+      return "bg-orange-50 text-orange-700";
     case "return_requested":
     case "return_approved":
       return "bg-amber-50 text-amber-700";
@@ -415,7 +427,7 @@ export default function OrdersPage() {
       <Dialog.Root open={detailOpen} onOpenChange={setDetailOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/30" />
-          <Dialog.Content className="fixed right-0 top-0 z-50 h-full w-full max-w-xl overflow-y-auto bg-white shadow-xl focus:outline-none" aria-describedby={undefined}>
+          <Dialog.Content className="fixed right-0 top-0 z-50 h-full w-full max-w-2xl overflow-y-auto bg-white shadow-xl focus:outline-none" aria-describedby={undefined}>
             <VisuallyHidden.Root>
               <Dialog.Title>Order Details</Dialog.Title>
             </VisuallyHidden.Root>
@@ -438,6 +450,10 @@ export default function OrdersPage() {
                 setNoteText={setNoteText}
                 noteAdding={noteAdding}
                 onAddNote={handleAddNote}
+                onUpdated={(o) => {
+                  setSelectedOrder(o);
+                  fetchOrders();
+                }}
               />
             ) : null}
           </Dialog.Content>
@@ -461,6 +477,7 @@ function OrderDetail({
   setNoteText,
   noteAdding,
   onAddNote,
+  onUpdated,
 }) {
   return (
     <div className="flex flex-col h-full">
@@ -490,6 +507,12 @@ function OrderDetail({
               className="px-4 py-2.5 text-sm font-medium text-zinc-400 border-b-2 border-transparent transition-colors data-[state=active]:text-zinc-900 data-[state=active]:border-zinc-900"
             >
               Details
+            </Tabs.Trigger>
+            <Tabs.Trigger
+              value="shipment"
+              className="px-4 py-2.5 text-sm font-medium text-zinc-400 border-b-2 border-transparent transition-colors data-[state=active]:text-zinc-900 data-[state=active]:border-zinc-900"
+            >
+              Shipment
             </Tabs.Trigger>
             <Tabs.Trigger
               value="notes"
@@ -555,6 +578,11 @@ function OrderDetail({
                   </>
                 )}
               </div>
+            )}
+
+            {/* Return request actions */}
+            {order.status === "return_requested" && (
+              <ReturnRequestActions order={order} onUpdated={onUpdated} />
             )}
 
             {/* Customer Info */}
@@ -681,6 +709,11 @@ function OrderDetail({
             </div>
           </Tabs.Content>
 
+          {/* Shipment Tab */}
+          <Tabs.Content value="shipment" className="flex-1 p-6">
+            <ShipmentTab order={order} onUpdated={onUpdated} />
+          </Tabs.Content>
+
           {/* Notes Tab */}
           <Tabs.Content value="notes" className="flex-1 p-6 space-y-4">
             {/* Add note */}
@@ -735,5 +768,301 @@ function TimelineRow({ label, date }) {
       <span className="text-sm text-zinc-500">{label}</span>
       <span className="text-xs text-zinc-400">{formatDateTime(date)}</span>
     </div>
+  );
+}
+
+function ReturnRequestActions({ order, onUpdated }) {
+  const { showToast } = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const act = async (action) => {
+    setBusy(true);
+    try {
+      const data = await adminOrderApi.approveReturn(order._id, action);
+      onUpdated(data.order || data);
+      showToast(`Return ${action}d`, "success");
+    } catch (err) {
+      showToast(err?.response?.data?.message || "Failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 space-y-2">
+      <p className="text-sm font-medium text-amber-800">Return requested</p>
+      {order.returnRequest?.reason && (
+        <p className="text-xs text-amber-700">Reason: {order.returnRequest.reason}</p>
+      )}
+      <p className="text-xs text-zinc-500">
+        Approving creates a Shiprocket reverse-pickup automatically.
+      </p>
+      <div className="flex gap-2">
+        <button
+          onClick={() => act("approve")}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+        >
+          <CheckIcon className="h-3.5 w-3.5" /> Approve
+        </button>
+        <button
+          onClick={() => act("reject")}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
+        >
+          <Cross1Icon className="h-3.5 w-3.5" /> Reject
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value, mono }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-xs text-zinc-400 shrink-0">{label}</span>
+      <span className={`text-xs text-zinc-700 text-right break-all ${mono ? "font-mono" : ""}`}>
+        {value || "—"}
+      </span>
+    </div>
+  );
+}
+
+function ShipmentTab({ order, onUpdated }) {
+  const { showToast } = useToast();
+  const s = order.shipping || {};
+  const [busy, setBusy] = useState(""); // which action is running
+  const [couriers, setCouriers] = useState(null);
+  const [courierId, setCourierId] = useState("");
+  const [tracking, setTracking] = useState(null);
+  const [ndrComment, setNdrComment] = useState("");
+
+  // Wrap an adminShiprocketApi call: set busy, run, update order, toast.
+  const run = async (key, fn, successMsg) => {
+    setBusy(key);
+    try {
+      const data = await fn();
+      if (data?.order) onUpdated(data.order);
+      if (successMsg) showToast(successMsg, "success");
+      return data;
+    } catch (err) {
+      showToast(err?.response?.data?.message || "Operation failed", "error");
+      return null;
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const openUrl = (url) => {
+    if (url) window.open(url, "_blank", "noopener");
+    else showToast("No document URL returned", "error");
+  };
+
+  const checkCouriers = async () => {
+    const data = await run("serviceability", () => adminShiprocketApi.serviceability(order._id));
+    if (data?.serviceability) setCouriers(data.serviceability.couriers || []);
+  };
+
+  const doTrack = async () => {
+    const data = await run("track", () => adminShiprocketApi.track(order._id));
+    if (data?.tracking) setTracking(data.tracking);
+  };
+
+  const created = !!s.shiprocketOrderId;
+  const hasShipment = !!s.shipmentId;
+  const hasAwb = !!s.awbNumber;
+
+  const Btn = ({ k, onClick, children, disabled, variant = "secondary" }) => (
+    <button
+      onClick={onClick}
+      disabled={!!busy || disabled}
+      className={
+        variant === "primary"
+          ? "inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+          : variant === "danger"
+            ? "inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+            : "inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
+      }
+    >
+      {busy === k ? <ReloadIcon className="h-3.5 w-3.5 animate-spin" /> : children}
+    </button>
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Summary */}
+      <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Shiprocket</h3>
+          <div className="flex gap-1.5">
+            {s.isRTO && (
+              <span className="rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-medium text-orange-700">RTO</span>
+            )}
+            {s.ndrAttempts > 0 && (
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                NDR ×{s.ndrAttempts}
+              </span>
+            )}
+          </div>
+        </div>
+        <InfoRow label="Order ID" value={s.shiprocketOrderId} mono />
+        <InfoRow label="Shipment ID" value={s.shipmentId} mono />
+        <InfoRow label="AWB" value={s.awbNumber} mono />
+        <InfoRow label="Courier" value={s.courierName} />
+        <InfoRow label="Tracking status" value={s.lastTrackingStatus ? `${s.lastTrackingStatus}${s.lastTrackingStatusId ? ` (${s.lastTrackingStatusId})` : ""}` : null} />
+        <InfoRow label="Pickup" value={s.pickupScheduledDate ? formatDateTime(s.pickupScheduledDate) : null} />
+        <InfoRow label="ETA" value={s.estimatedDelivery ? formatDate(s.estimatedDelivery) : null} />
+        <InfoRow label="Last update" value={s.lastWebhookAt ? formatDateTime(s.lastWebhookAt) : null} />
+        {s.trackingUrl && (
+          <a href={s.trackingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+            <ExternalLinkIcon className="h-3 w-3" /> Public tracking
+          </a>
+        )}
+      </div>
+
+      {/* Create / sync */}
+      {!created && (
+        <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
+          <p className="text-sm text-zinc-600">No Shiprocket order yet.</p>
+          <Btn k="sync" variant="primary" onClick={() => run("sync", () => adminShiprocketApi.sync(order._id), "Shiprocket order created")}>
+            <ReloadIcon className="h-3.5 w-3.5" /> Create Shiprocket order
+          </Btn>
+        </div>
+      )}
+
+      {/* AWB / courier */}
+      {created && !hasAwb && (
+        <div className="rounded-lg border border-zinc-200 p-4 space-y-3">
+          <p className="text-sm font-medium text-zinc-700">Assign AWB</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Btn k="serviceability" onClick={checkCouriers}>Check couriers</Btn>
+            {couriers && (
+              <select
+                value={courierId}
+                onChange={(e) => setCourierId(e.target.value)}
+                className="rounded-lg border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
+              >
+                <option value="">Auto (recommended)</option>
+                {couriers.map((c) => (
+                  <option key={c.courierId} value={c.courierId}>
+                    {c.name} — ₹{c.rate} / {c.estimatedDays}d
+                  </option>
+                ))}
+              </select>
+            )}
+            <Btn k="awb" variant="primary" disabled={!hasShipment} onClick={() => run("awb", () => adminShiprocketApi.assignAwb(order._id, courierId || undefined), "AWB assigned")}>
+              Assign AWB
+            </Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Operations */}
+      {created && (
+        <div className="rounded-lg border border-zinc-200 p-4 space-y-3">
+          <p className="text-sm font-medium text-zinc-700">Operations</p>
+          <div className="flex flex-wrap gap-2">
+            <Btn k="pickup" disabled={!hasShipment} onClick={() => run("pickup", () => adminShiprocketApi.pickup(order._id), "Pickup scheduled")}>Schedule pickup</Btn>
+            <Btn k="label" disabled={!hasShipment} onClick={async () => { const d = await run("label", () => adminShiprocketApi.label(order._id)); openUrl(d?.url); }}>Label</Btn>
+            <Btn k="manifest" disabled={!hasShipment} onClick={async () => { const d = await run("manifest", () => adminShiprocketApi.manifest(order._id)); openUrl(d?.url); }}>Manifest</Btn>
+            <Btn k="invoice" onClick={async () => { const d = await run("invoice", () => adminShiprocketApi.invoice(order._id)); openUrl(d?.url); }}>Invoice</Btn>
+            <Btn k="track" disabled={!hasAwb} onClick={doTrack}>Track</Btn>
+            <Btn k="cancel" variant="danger" onClick={() => run("cancel", () => adminShiprocketApi.cancel(order._id), "Cancellation requested")}>Cancel shipment</Btn>
+          </div>
+
+          {/* NDR */}
+          {hasAwb && (
+            <div className="pt-2 border-t border-zinc-100 space-y-2">
+              <p className="text-xs font-medium text-zinc-500">NDR action</p>
+              <input
+                type="text"
+                value={ndrComment}
+                onChange={(e) => setNdrComment(e.target.value)}
+                placeholder="Comment (required)"
+                className="w-full rounded-lg border border-zinc-200 px-3 py-1.5 text-xs outline-none focus:border-zinc-400"
+              />
+              <div className="flex gap-2">
+                <Btn k="ndr-re" disabled={!ndrComment.trim()} onClick={() => run("ndr-re", () => adminShiprocketApi.ndr(order._id, "re-attempt", ndrComment), "Re-attempt requested")}>Re-attempt</Btn>
+                <Btn k="ndr-ret" variant="danger" disabled={!ndrComment.trim()} onClick={() => run("ndr-ret", () => adminShiprocketApi.ndr(order._id, "return", ndrComment), "RTO requested")}>Return (RTO)</Btn>
+              </div>
+            </div>
+          )}
+
+          {/* Manual return */}
+          {order.status === "delivered" && !s.returnShipment?.shipmentId && (
+            <div className="pt-2 border-t border-zinc-100">
+              <Btn k="return" onClick={() => run("return", () => adminShiprocketApi.createReturn(order._id), "Return pickup created")}>Create return pickup</Btn>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Documents */}
+      {(s.labelUrl || s.manifestUrl) && (
+        <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
+          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Documents</h3>
+          {s.labelUrl && (
+            <a href={s.labelUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-blue-600 hover:underline">
+              <ExternalLinkIcon className="h-3 w-3" /> Shipping label
+            </a>
+          )}
+          {s.manifestUrl && (
+            <a href={s.manifestUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-blue-600 hover:underline">
+              <ExternalLinkIcon className="h-3 w-3" /> Manifest
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* Return shipment */}
+      {s.returnShipment?.shipmentId && (
+        <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
+          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Return shipment</h3>
+          <InfoRow label="AWB" value={s.returnShipment.awbNumber} mono />
+          <InfoRow label="Courier" value={s.returnShipment.courierName} />
+          {s.returnShipment.trackingUrl && (
+            <a href={s.returnShipment.trackingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+              <ExternalLinkIcon className="h-3 w-3" /> Track return
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* Tracking scans */}
+      {tracking && (
+        <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
+          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Tracking</h3>
+          <TrackingScans tracking={tracking} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Render the scan history from a Shiprocket track-by-AWB response (shape varies).
+function TrackingScans({ tracking }) {
+  const data = tracking?.tracking_data || tracking;
+  const activities =
+    data?.shipment_track_activities ||
+    data?.shipment_track ||
+    data?.scans ||
+    [];
+  if (!Array.isArray(activities) || activities.length === 0) {
+    return <p className="text-xs text-zinc-400">No tracking activity yet.</p>;
+  }
+  return (
+    <ol className="space-y-2">
+      {activities.map((a, i) => (
+        <li key={i} className="flex gap-2">
+          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300" />
+          <div>
+            <p className="text-xs text-zinc-700">{a.activity || a.status || a["sr-status-label"] || "—"}</p>
+            <p className="text-[11px] text-zinc-400">
+              {[a.location, a.date || a.time].filter(Boolean).join(" · ")}
+            </p>
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }

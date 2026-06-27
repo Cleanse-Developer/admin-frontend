@@ -25,6 +25,9 @@ const INITIAL_FORM = {
   slug: "",
   description: "",
   shortDescription: "",
+  benefits: "",
+  skinType: [],
+  concerns: [],
   price: "",
   compareAtPrice: "",
   color: "",
@@ -62,6 +65,9 @@ function initForm(d) {
     slug: d.slug || "",
     description: d.description || "",
     shortDescription: d.shortDescription || "",
+    benefits: (d.benefits || []).join("\n"),
+    skinType: d.skinType || [],
+    concerns: d.concerns || [],
     price: d.price ?? "",
     compareAtPrice: d.compareAtPrice ?? "",
     color: d.color || "",
@@ -133,6 +139,27 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
   const [slugManual, setSlugManual] = useState(!!initialData);
   const [activeTab, setActiveTab] = useState("general");
   const [keywordInput, setKeywordInput] = useState("");
+  const [skinTypeInput, setSkinTypeInput] = useState("");
+  const [concernInput, setConcernInput] = useState("");
+
+  // Add/remove a value from an array-typed form field (skinType, concerns)
+  const addTag = useCallback((field, text, reset) => {
+    const t = text.trim();
+    if (!t) return reset("");
+    setForm((prev) =>
+      prev[field].includes(t)
+        ? prev
+        : { ...prev, [field]: [...prev[field], t] }
+    );
+    reset("");
+  }, []);
+
+  const removeTag = useCallback((field, val) => {
+    setForm((prev) => ({
+      ...prev,
+      [field]: prev[field].filter((v) => v !== val),
+    }));
+  }, []);
 
   // Fetch categories
   useEffect(() => {
@@ -163,15 +190,14 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
   function validate() {
     const e = {};
     if (!form.name.trim()) e.name = "Name is required";
-    else if (form.name.length > 200) e.name = "Max 200 characters";
 
     if (!form.slug.trim()) e.slug = "Slug is required";
     else if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug))
       e.slug = "Only lowercase letters, numbers, and hyphens";
 
     if (!form.description.trim()) e.description = "Description is required";
-    else if (form.description.length > 2000)
-      e.description = "Max 2000 characters";
+    else if (form.description.length > 5000)
+      e.description = "Max 5000 characters";
 
     if (form.price === "" || form.price === null)
       e.price = "Price is required";
@@ -224,6 +250,17 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
     if (Object.keys(seoData).length > 0) {
       fd.append("seo", JSON.stringify(seoData));
     }
+
+    // Benefits (one per line) + skinType / concerns chips, as JSON arrays
+    const benefitsArr = form.benefits
+      .split("\n")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (benefitsArr.length > 0) fd.append("benefits", JSON.stringify(benefitsArr));
+    if (form.skinType.length > 0)
+      fd.append("skinType", JSON.stringify(form.skinType));
+    if (form.concerns.length > 0)
+      fd.append("concerns", JSON.stringify(form.concerns));
 
     // Tab highlights as JSON
     const hasHighlights = Object.values(tabHighlights).some(
@@ -344,7 +381,6 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
                   type="text"
                   value={form.name}
                   onChange={(e) => setField("name", e.target.value)}
-                  maxLength={200}
                   className={inputClass("name")}
                   placeholder="e.g. Kumkumadi Serum"
                 />
@@ -385,14 +421,14 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
                     Description <span className="text-red-500">*</span>
                   </span>
                   <span className="text-xs font-normal text-zinc-400">
-                    {form.description.length}/2000
+                    {form.description.length}/5000
                   </span>
                 </label>
                 <textarea
                   rows={4}
                   value={form.description}
                   onChange={(e) => setField("description", e.target.value)}
-                  maxLength={2000}
+                  maxLength={5000}
                   className={inputClass("description")}
                   placeholder="Full product description..."
                 />
@@ -407,9 +443,6 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
               <div className="flex flex-col gap-1.5">
                 <label className="flex items-center justify-between text-sm font-medium text-zinc-700">
                   <span>Short Description</span>
-                  <span className="text-xs font-normal text-zinc-400">
-                    {form.shortDescription.length}/500
-                  </span>
                 </label>
                 <textarea
                   rows={2}
@@ -417,7 +450,6 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
                   onChange={(e) =>
                     setField("shortDescription", e.target.value)
                   }
-                  maxLength={500}
                   className={inputClass("shortDescription")}
                   placeholder="Brief teaser text..."
                 />
@@ -686,6 +718,117 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
                   />
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Benefits / Skin Type / Concerns */}
+          <div className="rounded-lg border border-zinc-200 bg-white p-6">
+            <h2 className="text-base font-semibold text-zinc-900">
+              Benefits &amp; Suitability
+            </h2>
+            <div className="mt-4 flex flex-col gap-4">
+              {/* Benefits */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-zinc-700">
+                  Benefits
+                </label>
+                <textarea
+                  rows={5}
+                  value={form.benefits}
+                  onChange={(e) => setField("benefits", e.target.value)}
+                  className={inputClass("benefits")}
+                  placeholder="One benefit per line"
+                />
+                <span className="text-xs text-zinc-400">
+                  One benefit per line.
+                </span>
+              </div>
+
+              {/* Skin / Scalp Type */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-zinc-700">
+                  Skin / Scalp Type
+                </label>
+                <input
+                  type="text"
+                  value={skinTypeInput}
+                  onChange={(e) => setSkinTypeInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault();
+                      addTag("skinType", skinTypeInput, setSkinTypeInput);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (skinTypeInput.trim())
+                      addTag("skinType", skinTypeInput, setSkinTypeInput);
+                  }}
+                  className={inputClass("skinType")}
+                  placeholder="e.g. oily, dry, all — Enter to add"
+                />
+                {form.skinType.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {form.skinType.map((v) => (
+                      <span
+                        key={v}
+                        className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-700"
+                      >
+                        {v}
+                        <button
+                          type="button"
+                          onClick={() => removeTag("skinType", v)}
+                          className="text-zinc-400 hover:text-zinc-600"
+                        >
+                          <Cross1Icon className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Concerns */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-zinc-700">
+                  Concerns
+                </label>
+                <input
+                  type="text"
+                  value={concernInput}
+                  onChange={(e) => setConcernInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault();
+                      addTag("concerns", concernInput, setConcernInput);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (concernInput.trim())
+                      addTag("concerns", concernInput, setConcernInput);
+                  }}
+                  className={inputClass("concerns")}
+                  placeholder="e.g. Acne, Dandruff, Dryness — Enter to add"
+                />
+                {form.concerns.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {form.concerns.map((v) => (
+                      <span
+                        key={v}
+                        className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-700"
+                      >
+                        {v}
+                        <button
+                          type="button"
+                          onClick={() => removeTag("concerns", v)}
+                          className="text-zinc-400 hover:text-zinc-600"
+                        >
+                          <Cross1Icon className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
