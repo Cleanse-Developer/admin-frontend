@@ -4,10 +4,14 @@ import { useRef, useState } from "react";
 import { Cross1Icon, UploadIcon } from "@radix-ui/react-icons";
 import { adminCmsApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
-import { BREAKPOINTS } from "@/components/responsive-variants";
+import {
+  BREAKPOINTS,
+  DEVICE_META,
+  DeviceGlyph,
+} from "@/components/responsive-variants";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
-const MAX_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_SIZE = 100 * 1024 * 1024; // 100MB
 
 // Optional per-screen-size media for a single CMS image. Unlike the product
 // ResponsiveVariants (which defers upload for multipart submit), CMS uploads each
@@ -24,7 +28,7 @@ export default function CmsVariantSlots({ sources = {}, onChange }) {
       return false;
     }
     if (file.size > MAX_SIZE) {
-      showToast("File too large. Max 5MB", "error");
+      showToast("File too large. Max 100MB", "error");
       return false;
     }
     return true;
@@ -63,47 +67,69 @@ export default function CmsVariantSlots({ sources = {}, onChange }) {
           const v = sources?.[key];
           const isUploading = uploadingKey === key;
           return (
-            <div key={key} className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-zinc-600">{label}</span>
-              {v?.url ? (
-                <div className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-200">
-                  <img
-                    src={v.url}
-                    alt={`${label} variant`}
-                    className="h-full w-full object-cover"
-                  />
+            <div
+              key={key}
+              className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white"
+            >
+              {/* Card header */}
+              <div className="flex items-center gap-2 border-b border-zinc-100 px-2.5 py-2 text-zinc-600">
+                <DeviceGlyph deviceKey={key} />
+                <div className="leading-tight">
+                  <div className="text-xs font-semibold text-zinc-700">{label}</div>
+                  <div className="text-[10px] text-zinc-400">{DEVICE_META[key].hint}</div>
+                </div>
+              </div>
+
+              {/* Slot */}
+              <div className="p-2">
+                {v?.url ? (
+                  <div className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-200">
+                    <img
+                      src={v.url}
+                      alt={`${label} variant`}
+                      className="h-full w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => clearVariant(key)}
+                      className="absolute top-1 right-1 rounded-full bg-black/50 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      title="Remove variant"
+                    >
+                      <Cross1Icon className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isUploading}
+                      onClick={() => inputRefs.current[key]?.click()}
+                      className="absolute inset-x-0 bottom-0 bg-black/55 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 disabled:opacity-50"
+                    >
+                      {isUploading ? "Uploading..." : "Replace"}
+                    </button>
+                  </div>
+                ) : (
                   <button
                     type="button"
-                    onClick={() => clearVariant(key)}
-                    className="absolute top-1 right-1 rounded-full bg-black/40 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                    title="Remove variant"
+                    disabled={isUploading}
+                    onClick={() => inputRefs.current[key]?.click()}
+                    className="flex aspect-square w-full flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-zinc-200 text-zinc-400 transition-colors hover:border-zinc-400 hover:text-zinc-500 disabled:opacity-50"
                   >
-                    <Cross1Icon className="h-3 w-3" />
+                    <UploadIcon className="h-5 w-5" />
+                    <span className="text-[10px] font-medium">
+                      {isUploading ? "Uploading..." : "Add image"}
+                    </span>
                   </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  disabled={isUploading}
-                  onClick={() => inputRefs.current[key]?.click()}
-                  className="flex aspect-square flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 text-zinc-400 transition-colors hover:border-zinc-400 disabled:opacity-50"
-                >
-                  <UploadIcon className="h-5 w-5" />
-                  <span className="mt-1 text-[10px]">
-                    {isUploading ? "Uploading..." : "Upload"}
-                  </span>
-                </button>
-              )}
-              <input
-                ref={(el) => (inputRefs.current[key] = el)}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                className="hidden"
-                onChange={(e) => {
-                  handlePick(key, e.target.files);
-                  e.target.value = "";
-                }}
-              />
+                )}
+                <input
+                  ref={(el) => (inputRefs.current[key] = el)}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    handlePick(key, e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
             </div>
           );
         })}

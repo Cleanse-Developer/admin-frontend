@@ -24,3 +24,6 @@ export function formatDate(value) {
 
 export const isVideo = (m) =>
   m?.resourceType === "video" || (m?.mimetype || "").startsWith("video/");
+
+export const formatDimensions = (m) =>
+  m?.width && m?.height ? `${m.width}×${m.height}` : null;

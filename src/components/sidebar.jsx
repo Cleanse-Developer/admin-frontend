@@ -23,6 +23,7 @@ import {
   Share1Icon,
   ImageIcon,
   ChatBubbleIcon as CommentIcon,
+  CodeIcon,
 } from "@radix-ui/react-icons";
 
 const NAV_ITEMS = [
@@ -46,6 +47,7 @@ const NAV_ITEMS = [
   { href: "/whatsapp-automation", label: "WhatsApp Automation", icon: ChatBubbleIcon },
   { href: "/shipping", label: "Shipping", icon: RocketIcon },
   { href: "/settings", label: "Settings", icon: GearIcon },
+  { href: "/developer-options", label: "Developer Options", icon: CodeIcon },
 ];
 
 export default function Sidebar({ open, onClose }) {

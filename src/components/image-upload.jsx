@@ -18,6 +18,23 @@ import MediaPicker from "@/components/media/media-picker";
 const countVariants = (sources) =>
   sources ? BREAKPOINTS.filter(({ key }) => sources[key]?.url).length : 0;
 
+// Three dots, filled per device that has a variant set.
+function VariantDots({ sources }) {
+  return (
+    <span className="flex items-center gap-1">
+      {BREAKPOINTS.map(({ key, label }) => (
+        <span
+          key={key}
+          title={label}
+          className={`h-1.5 w-1.5 rounded-full ${
+            sources?.[key]?.url ? "bg-current" : "bg-current/25"
+          }`}
+        />
+      ))}
+    </span>
+  );
+}
+
 const revokeVariantBlobs = (sources) => {
   if (!sources) return;
   for (const { key } of BREAKPOINTS) {
@@ -27,7 +44,7 @@ const revokeVariantBlobs = (sources) => {
 };
 
 const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
-const MAX_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_SIZE = 100 * 1024 * 1024; // 100MB
 
 export default function ImageUpload({
   images = [],
@@ -76,7 +93,7 @@ export default function ImageUpload({
         continue;
       }
       if (file.size > MAX_SIZE) {
-        showToast(`${file.name}: Max 5MB per image`, "error");
+        showToast(`${file.name}: Max 100MB per image`, "error");
         continue;
       }
       valid.push(file);
@@ -187,7 +204,7 @@ export default function ImageUpload({
             Drag images here or click to browse
           </p>
           <p className="mt-1 text-xs text-zinc-400">
-            JPEG, PNG, WebP. Max 5MB. Up to {maxImages} images. Cropped to 3:4 portrait.
+            JPEG, PNG, WebP. Max 100MB. Up to {maxImages} images. Cropped to 3:4 portrait.
           </p>
           <input
             ref={inputRef}
@@ -229,67 +246,73 @@ export default function ImageUpload({
       {/* Preview grid */}
       {images.length > 0 && (
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
-          {images.map((img, index) => (
-            <div
-              key={img.url}
-              className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-200"
-            >
-              <img
-                src={img.url}
-                alt={img.alt || "Product image"}
-                className="h-full w-full object-cover"
-              />
+          {images.map((img, index) => {
+            const variantCount = countVariants(img.sources);
+            return (
+              <div key={img.url} className="flex flex-col gap-1.5">
+                <div className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-200">
+                  <img
+                    src={img.url}
+                    alt={img.alt || "Product image"}
+                    className="h-full w-full object-cover"
+                  />
 
-              {/* Primary indicator / button */}
-              <button
-                type="button"
-                onClick={() => handleSetPrimary(index)}
-                className={`absolute bottom-1 left-1 rounded-full p-1 ${
-                  img.isPrimary
-                    ? "bg-amber-500 text-white"
-                    : "bg-black/40 text-white opacity-0 group-hover:opacity-100"
-                }`}
-                title={img.isPrimary ? "Primary image" : "Set as primary"}
-              >
-                {img.isPrimary ? (
-                  <StarFilledIcon className="h-3 w-3" />
-                ) : (
-                  <StarIcon className="h-3 w-3" />
-                )}
-              </button>
+                  {/* Primary indicator / button */}
+                  <button
+                    type="button"
+                    onClick={() => handleSetPrimary(index)}
+                    className={`absolute bottom-1 left-1 rounded-full p-1 ${
+                      img.isPrimary
+                        ? "bg-amber-500 text-white"
+                        : "bg-black/40 text-white opacity-0 group-hover:opacity-100"
+                    }`}
+                    title={img.isPrimary ? "Primary image" : "Set as primary"}
+                  >
+                    {img.isPrimary ? (
+                      <StarFilledIcon className="h-3 w-3" />
+                    ) : (
+                      <StarIcon className="h-3 w-3" />
+                    )}
+                  </button>
 
-              {/* Remove button */}
-              <button
-                type="button"
-                onClick={() => handleRemove(index)}
-                className="absolute top-1 right-1 rounded-full bg-black/40 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100"
-              >
-                <Cross1Icon className="h-3 w-3" />
-              </button>
+                  {/* Remove button */}
+                  <button
+                    type="button"
+                    onClick={() => handleRemove(index)}
+                    className="absolute top-1 right-1 rounded-full bg-black/40 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    <Cross1Icon className="h-3 w-3" />
+                  </button>
 
-              {/* Responsive variants button */}
-              <button
-                type="button"
-                onClick={() => setVariantsFor(index)}
-                className={`absolute bottom-1 right-1 flex items-center gap-1 rounded-full px-1.5 py-1 text-[10px] font-medium ${
-                  countVariants(img.sources) > 0
-                    ? "bg-zinc-900 text-white"
-                    : "bg-black/60 text-white"
-                }`}
-                title="Responsive variants"
-              >
-                <ImageIcon className="h-3 w-3" />
-                {countVariants(img.sources) > 0 && countVariants(img.sources)}
-              </button>
+                  {/* New badge */}
+                  {img.isNew && (
+                    <span className="absolute top-1 left-1 rounded bg-blue-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      New
+                    </span>
+                  )}
+                </div>
 
-              {/* New badge */}
-              {img.isNew && (
-                <span className="absolute top-1 left-1 rounded bg-blue-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                  New
-                </span>
-              )}
-            </div>
-          ))}
+                {/* Always-visible responsive-variants control */}
+                <button
+                  type="button"
+                  onClick={() => setVariantsFor(index)}
+                  title="Set per-device images"
+                  className={`flex items-center justify-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+                    variantCount > 0
+                      ? "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
+                      : "border-zinc-200 text-zinc-600 hover:border-zinc-400 hover:bg-zinc-50"
+                  }`}
+                >
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  <span>Variants</span>
+                  <VariantDots sources={img.sources} />
+                  <span className={variantCount > 0 ? "text-white/80" : "text-zinc-400"}>
+                    {variantCount}/3
+                  </span>
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -309,18 +332,28 @@ export default function ImageUpload({
       >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(90vw,520px)] -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-xl">
-            <div className="flex items-center justify-between">
-              <Dialog.Title className="text-base font-semibold text-zinc-900">
-                Responsive variants
-              </Dialog.Title>
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(94vw,640px)] -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-6 shadow-xl">
+            <div className="flex items-start gap-3">
+              {variantsFor !== null && images[variantsFor]?.url && (
+                <img
+                  src={images[variantsFor].url}
+                  alt="Base image"
+                  className="h-12 w-12 shrink-0 rounded-lg border border-zinc-200 object-cover"
+                />
+              )}
+              <div className="flex-1">
+                <Dialog.Title className="text-base font-semibold text-zinc-900">
+                  Responsive variants
+                </Dialog.Title>
+                <Dialog.Description className="mt-0.5 text-sm text-zinc-500">
+                  Optionally show a different crop or image per device. Empty slots fall back to
+                  the main image above.
+                </Dialog.Description>
+              </div>
               <Dialog.Close className="rounded p-1 text-zinc-400 hover:text-zinc-700">
                 <Cross1Icon className="h-4 w-4" />
               </Dialog.Close>
             </div>
-            <Dialog.Description className="mt-1 text-sm text-zinc-500">
-              Upload alternate media for specific screen sizes for this image.
-            </Dialog.Description>
             <div className="mt-4">
               {variantsFor !== null && (
                 <ResponsiveVariants

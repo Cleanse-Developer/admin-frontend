@@ -25,6 +25,10 @@ export const adminWhatsAppApi = {
 export const adminProductApi = {
   list: (params) =>
     api.get("/admin/products", { params }).then((r) => r.data.data),
+  listFeatured: () =>
+    api.get("/admin/products/featured").then((r) => r.data.data),
+  reorderFeatured: (ids) =>
+    api.patch("/admin/products/featured/reorder", { ids }).then((r) => r.data),
   get: (id) => api.get(`/admin/products/${id}`).then((r) => r.data.data),
   create: (formData) =>
     api
@@ -144,6 +148,12 @@ export const adminShiprocketApi = {
     api
       .post("/admin/shiprocket/serviceability", { pincode, cod, weight })
       .then((r) => r.data.data),
+  getMode: () => api.get("/admin/shiprocket/mode").then((r) => r.data.data),
+  setMode: (mode) =>
+    api.patch("/admin/shiprocket/mode", { mode }).then((r) => r.data.data),
+  getConfig: () => api.get("/admin/shiprocket/config").then((r) => r.data.data),
+  setConfig: (config) =>
+    api.patch("/admin/shiprocket/config", config).then((r) => r.data.data),
 };
 
 export const adminBundleApi = {

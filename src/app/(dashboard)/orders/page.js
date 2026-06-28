@@ -3,19 +3,18 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   ArchiveIcon,
-  MagnifyingGlassIcon,
   ChevronRightIcon,
-  ChevronDownIcon,
   CheckCircledIcon,
-  CrossCircledIcon,
-  ClockIcon,
-  CheckIcon,
   Cross1Icon,
   ChatBubbleIcon,
   ReloadIcon,
   ExternalLinkIcon,
+  CopyIcon,
+  CheckIcon,
+  ChevronDownIcon,
 } from "@radix-ui/react-icons";
 import * as Dialog from "@radix-ui/react-dialog";
+import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
 import * as Tabs from "@radix-ui/react-tabs";
 import { adminOrderApi, adminShiprocketApi } from "@/lib/endpoints";
@@ -26,23 +25,27 @@ import SearchInput from "@/components/search-input";
 import SelectFilter from "@/components/select-filter";
 import Pagination from "@/components/pagination";
 
+/* ------------------------------------------------------------------ */
+/* Constants                                                           */
+/* ------------------------------------------------------------------ */
+
 const ORDER_STATUSES = [
   { value: "all", label: "All Statuses" },
-  { value: "pending", label: "Pending" },
+  { value: "pending", label: "Order placed" },
   { value: "confirmed", label: "Confirmed" },
   { value: "processing", label: "Processing" },
   { value: "packed", label: "Packed" },
-  { value: "shipped", label: "Shipped" },
-  { value: "in_transit", label: "In Transit" },
-  { value: "out_for_delivery", label: "Out for Delivery" },
+  { value: "shipped", label: "Handed to courier" },
+  { value: "in_transit", label: "On the way" },
+  { value: "out_for_delivery", label: "Out for delivery" },
   { value: "delivered", label: "Delivered" },
   { value: "cancelled", label: "Cancelled" },
-  { value: "rto_in_transit", label: "RTO In Transit" },
-  { value: "rto_delivered", label: "RTO Delivered" },
-  { value: "return_requested", label: "Return Requested" },
-  { value: "return_approved", label: "Return Approved" },
+  { value: "rto_in_transit", label: "Coming back to us" },
+  { value: "rto_delivered", label: "Back at warehouse" },
+  { value: "return_requested", label: "Return requested" },
+  { value: "return_approved", label: "Return approved" },
   { value: "returned", label: "Returned" },
-  { value: "refund_initiated", label: "Refund Initiated" },
+  { value: "refund_initiated", label: "Refund started" },
   { value: "refunded", label: "Refunded" },
 ];
 
@@ -53,6 +56,27 @@ const PAYMENT_STATUSES = [
   { value: "failed", label: "Failed" },
   { value: "refunded", label: "Refunded" },
 ];
+
+// Plain-language label per internal status code (admin-facing).
+const PLAIN = {
+  pending: "Order placed",
+  confirmed: "Confirmed",
+  processing: "Processing",
+  packed: "Packed",
+  shipped: "Handed to courier",
+  in_transit: "On the way",
+  out_for_delivery: "Out for delivery",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+  rto_in_transit: "Coming back to us",
+  rto_delivered: "Back at warehouse",
+  return_requested: "Return requested",
+  return_approved: "Return approved",
+  returned: "Returned",
+  refund_initiated: "Refund started",
+  refunded: "Refunded",
+};
+const plain = (s) => PLAIN[s] || (s || "").replace(/_/g, " ");
 
 // Mirrors backend VALID_TRANSITIONS (admin/order.controller.js).
 const VALID_TRANSITIONS = {
@@ -72,6 +96,114 @@ const VALID_TRANSITIONS = {
   refund_initiated: ["refunded"],
   cancelled: ["refund_initiated"],
 };
+
+// The admin's routine next-step per status (forward path only). Other
+// transitions (courier/auto/branches) are NOT primary buttons.
+const ADMIN_CTA = {
+  pending: { to: "confirmed", label: "Confirm order" },
+  confirmed: { to: "processing", label: "Start processing" },
+  processing: { to: "packed", label: "Mark as packed" },
+  packed: {
+    to: "shipped",
+    label: "Hand to courier",
+    confirm: {
+      title: "Hand to courier?",
+      description:
+        "This books a courier pickup and assigns a tracking number. It uses your Shiprocket wallet balance. The courier will be asked to collect the parcel.",
+    },
+  },
+};
+
+// Whose turn is it / what's happening, per status.
+const STAGE_HELP = {
+  pending: { owner: "you", text: "Your turn: confirm the order to start fulfilment." },
+  confirmed: { owner: "you", text: "Your turn: start processing the order." },
+  processing: { owner: "you", text: "Your turn: pack the order." },
+  packed: { owner: "you", text: "Your turn: hand the parcel to the courier." },
+  shipped: { owner: "courier", text: "Automatic — waiting for the courier to pick up. Status updates on its own." },
+  in_transit: { owner: "courier", text: "Automatic — parcel is on its way. Status updates on its own." },
+  out_for_delivery: { owner: "courier", text: "Automatic — out for delivery today." },
+  delivered: { owner: "courier", text: "Delivered. Nothing more to do." },
+  cancelled: { owner: "you", text: "Order cancelled." },
+  rto_in_transit: { owner: "courier", text: "Automatic — parcel is being returned to us." },
+  rto_delivered: { owner: "courier", text: "Returned parcel is back. Restock/refund handled automatically." },
+  return_requested: { owner: "customer", text: "Customer requested a return — approve or reject below." },
+  return_approved: { owner: "automatic", text: "Automatic — reverse pickup arranged." },
+  returned: { owner: "courier", text: "Item returned to us." },
+  refund_initiated: { owner: "automatic", text: "Refund in progress." },
+  refunded: { owner: "automatic", text: "Refund complete." },
+};
+
+// Forward steps for the visual stepper.
+const STEPS = [
+  { code: "pending", owner: "customer" },
+  { code: "confirmed", owner: "you" },
+  { code: "processing", owner: "you" },
+  { code: "packed", owner: "you" },
+  { code: "shipped", owner: "you" },
+  { code: "in_transit", owner: "courier" },
+  { code: "out_for_delivery", owner: "courier" },
+  { code: "delivered", owner: "courier" },
+];
+const STEP_INDEX = STEPS.reduce((m, s, i) => ((m[s.code] = i), m), {});
+
+/* ------------------------------------------------------------------ */
+/* Owner icons + badges (SVG, no emoji)                               */
+/* ------------------------------------------------------------------ */
+
+function IconStore({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 9l1.5-5h15L21 9" /><path d="M4 9h16v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" /><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0" />
+    </svg>
+  );
+}
+function IconGear({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+function IconTruck({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="1" y="3" width="15" height="13" rx="1" /><path d="M16 8h4l3 3v5h-7z" /><circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" />
+    </svg>
+  );
+}
+function IconUser({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
+const OWNERS = {
+  you: { label: "You", Icon: IconStore, text: "text-zinc-700", bg: "bg-zinc-100", dot: "bg-zinc-700" },
+  automatic: { label: "Automatic", Icon: IconGear, text: "text-blue-700", bg: "bg-blue-50", dot: "bg-blue-500" },
+  courier: { label: "Courier", Icon: IconTruck, text: "text-amber-700", bg: "bg-amber-50", dot: "bg-amber-500" },
+  customer: { label: "Customer", Icon: IconUser, text: "text-violet-700", bg: "bg-violet-50", dot: "bg-violet-500" },
+};
+// backend actor → owner key
+const ACTOR_OWNER = { admin: "you", system: "automatic", courier: "courier", customer: "customer" };
+
+function OwnerBadge({ owner, withLabel = true, size = "sm" }) {
+  const o = OWNERS[owner] || OWNERS.you;
+  const Icon = o.Icon;
+  const ic = size === "xs" ? "h-3 w-3" : "h-3.5 w-3.5";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${o.bg} ${o.text}`}>
+      <Icon className={ic} />
+      {withLabel && o.label}
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Status badges / formatting                                         */
+/* ------------------------------------------------------------------ */
 
 function statusColor(status) {
   switch (status) {
@@ -99,7 +231,6 @@ function statusColor(status) {
       return "bg-zinc-50 text-zinc-600";
   }
 }
-
 function paymentColor(status) {
   switch (status) {
     case "paid":
@@ -113,58 +244,45 @@ function paymentColor(status) {
   }
 }
 
-function StatusBadge({ status }) {
-  const label = status?.replace(/_/g, " ") || "unknown";
+function GiftIcon({ className }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusColor(status)}`}
-    >
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${
-          status === "delivered"
-            ? "bg-green-500"
-            : status === "cancelled"
-              ? "bg-red-500"
-              : ["shipped", "in_transit", "out_for_delivery"].includes(status)
-                ? "bg-blue-500"
-                : ["return_requested", "return_approved"].includes(status)
-                  ? "bg-amber-500"
-                  : "bg-zinc-400"
-        }`}
-      />
-      {label}
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="8" width="18" height="4" rx="1" /><path d="M4 12v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8" /><path d="M12 8v13" /><path d="M12 8S10 3 7.5 3a2.5 2.5 0 0 0 0 5H12" /><path d="M12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5H12" />
+    </svg>
+  );
+}
+
+function StatusBadge({ status }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColor(status)}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${
+        status === "delivered" ? "bg-green-500"
+          : status === "cancelled" ? "bg-red-500"
+          : ["shipped", "in_transit", "out_for_delivery"].includes(status) ? "bg-blue-500"
+          : ["rto_in_transit", "rto_delivered"].includes(status) ? "bg-orange-500"
+          : ["return_requested", "return_approved"].includes(status) ? "bg-amber-500"
+          : "bg-zinc-400"
+      }`} />
+      {plain(status)}
     </span>
   );
 }
 
 function PaymentBadge({ status }) {
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${paymentColor(status)}`}
-    >
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${paymentColor(status)}`}>
       {status || "pending"}
     </span>
   );
 }
 
-function formatDate(dateStr) {
-  if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+function formatDate(d) {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
-
-function formatDateTime(dateStr) {
-  if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function formatDateTime(d) {
+  if (!d) return "—";
+  return new Date(d).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 const COLUMNS = [
@@ -178,57 +296,38 @@ const COLUMNS = [
   { key: "actions", label: "", width: "40px" },
 ];
 
+/* ------------------------------------------------------------------ */
+/* List page                                                          */
+/* ------------------------------------------------------------------ */
+
 export default function OrdersPage() {
   const { showToast } = useToast();
 
-  // List state
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, limit: 20 });
 
-  // Filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [sort, setSort] = useState("-createdAt");
-
   const debouncedSearch = useDebounce(search, 300);
 
-  // Detail dialog
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  // Status update
-  const [newStatus, setNewStatus] = useState("");
-  const [statusNote, setStatusNote] = useState("");
-  const [statusUpdating, setStatusUpdating] = useState(false);
-
-  // Notes
-  const [noteText, setNoteText] = useState("");
-  const [noteAdding, setNoteAdding] = useState(false);
-
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
-      const params = {
-        page: pagination.page,
-        limit: pagination.limit,
-        sort,
-      };
+      const params = { page: pagination.page, limit: pagination.limit, sort };
       if (debouncedSearch) params.search = debouncedSearch;
       if (statusFilter && statusFilter !== "all") params.status = statusFilter;
       if (paymentFilter && paymentFilter !== "all") params.paymentStatus = paymentFilter;
-
       const data = await adminOrderApi.list(params);
       setOrders(data.orders || []);
       if (data.pagination) {
-        setPagination((prev) => ({
-          ...prev,
-          page: data.pagination.page,
-          pages: data.pagination.pages,
-          total: data.pagination.total,
-        }));
+        setPagination((prev) => ({ ...prev, page: data.pagination.page, pages: data.pagination.pages, total: data.pagination.total }));
       }
     } catch {
       showToast("Failed to load orders", "error");
@@ -237,29 +336,16 @@ export default function OrdersPage() {
     }
   }, [pagination.page, pagination.limit, sort, debouncedSearch, statusFilter, paymentFilter, showToast]);
 
-  useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
+  useEffect(() => { setPagination((prev) => ({ ...prev, page: 1 })); }, [debouncedSearch, statusFilter, paymentFilter]);
 
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setPagination((prev) => ({ ...prev, page: 1 }));
-  }, [debouncedSearch, statusFilter, paymentFilter]);
-
-  const handleSort = (field) => {
-    setSort((prev) => (prev === field ? `-${field}` : prev === `-${field}` ? field : `-${field}`));
-  };
-
+  const handleSort = (field) => setSort((prev) => (prev === field ? `-${field}` : prev === `-${field}` ? field : `-${field}`));
   const sortField = sort.startsWith("-") ? sort.slice(1) : sort;
   const sortDir = sort.startsWith("-") ? "desc" : "asc";
 
-  // Open order detail
   const openDetail = async (order) => {
     setDetailOpen(true);
     setDetailLoading(true);
-    setNewStatus("");
-    setStatusNote("");
-    setNoteText("");
     try {
       const data = await adminOrderApi.get(order._id);
       setSelectedOrder(data.order || data);
@@ -271,83 +357,24 @@ export default function OrdersPage() {
     }
   };
 
-  // Update status
-  const handleStatusUpdate = async () => {
-    if (!newStatus || !selectedOrder) return;
-    setStatusUpdating(true);
-    try {
-      const data = await adminOrderApi.updateStatus(selectedOrder._id, newStatus, statusNote || undefined);
-      setSelectedOrder(data.order || data);
-      setNewStatus("");
-      setStatusNote("");
-      showToast("Order status updated", "success");
-      fetchOrders();
-    } catch (err) {
-      showToast(err?.response?.data?.message || "Failed to update status", "error");
-    } finally {
-      setStatusUpdating(false);
-    }
-  };
-
-  // Add note
-  const handleAddNote = async () => {
-    if (!noteText.trim() || !selectedOrder) return;
-    setNoteAdding(true);
-    try {
-      const data = await adminOrderApi.addNote(selectedOrder._id, noteText.trim());
-      setSelectedOrder(data.order || data);
-      setNoteText("");
-      showToast("Note added", "success");
-    } catch {
-      showToast("Failed to add note", "error");
-    } finally {
-      setNoteAdding(false);
-    }
-  };
-
-  const availableTransitions = selectedOrder ? VALID_TRANSITIONS[selectedOrder.status] || [] : [];
-
   return (
     <div>
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-zinc-900">Orders</h1>
-        <p className="text-sm text-zinc-500 mt-0.5">
-          Manage and track all customer orders
-        </p>
+        <p className="text-sm text-zinc-500 mt-0.5">Manage and track all customer orders</p>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="w-full sm:w-72">
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            placeholder="Search by order ID or name..."
-          />
+          <SearchInput value={search} onChange={setSearch} placeholder="Search by order ID or name..." />
         </div>
-        <SelectFilter
-          value={statusFilter}
-          onValueChange={setStatusFilter}
-          placeholder="All Statuses"
-          options={ORDER_STATUSES}
-        />
-        <SelectFilter
-          value={paymentFilter}
-          onValueChange={setPaymentFilter}
-          placeholder="All Payments"
-          options={PAYMENT_STATUSES}
-        />
-        <button
-          onClick={fetchOrders}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600 transition-colors hover:bg-zinc-50"
-        >
-          <ReloadIcon className="h-3.5 w-3.5" />
-          Refresh
+        <SelectFilter value={statusFilter} onValueChange={setStatusFilter} placeholder="All Statuses" options={ORDER_STATUSES} />
+        <SelectFilter value={paymentFilter} onValueChange={setPaymentFilter} placeholder="All Payments" options={PAYMENT_STATUSES} />
+        <button onClick={fetchOrders} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600 transition-colors hover:bg-zinc-50">
+          <ReloadIcon className="h-3.5 w-3.5" /> Refresh
         </button>
       </div>
 
-      {/* Table */}
       {!loading && orders.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 rounded-xl border border-zinc-200 bg-white">
           <ArchiveIcon className="mb-4 h-12 w-12 text-zinc-300" />
@@ -368,48 +395,29 @@ export default function OrdersPage() {
             onSort={handleSort}
             isLoading={loading}
             renderRow={(order) => (
-              <tr
-                key={order._id}
-                className="border-b border-zinc-100 transition-colors hover:bg-zinc-50 cursor-pointer"
-                onClick={() => openDetail(order)}
-              >
+              <tr key={order._id} className="border-b border-zinc-100 transition-colors hover:bg-zinc-50 cursor-pointer" onClick={() => openDetail(order)}>
+                <td className="px-4 py-3"><span className="font-medium text-zinc-900 text-xs tracking-wide">{order.orderId}</span></td>
                 <td className="px-4 py-3">
-                  <span className="font-medium text-zinc-900 text-xs tracking-wide">
-                    {order.orderId}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <p className="text-sm text-zinc-900 truncate max-w-[160px]">
-                    {order.user?.fullName || order.shippingAddress?.fullName || "—"}
-                  </p>
-                  <p className="text-xs text-zinc-400 truncate max-w-[160px]">
-                    {order.user?.email || order.contactEmail || ""}
-                  </p>
+                  <p className="text-sm text-zinc-900 truncate max-w-[160px]">{order.user?.fullName || order.shippingAddress?.fullName || "—"}</p>
+                  <p className="text-xs text-zinc-400 truncate max-w-[160px]">{order.user?.email || order.contactEmail || ""}</p>
                 </td>
                 <td className="px-4 py-3 hidden sm:table-cell">
-                  <span className="text-sm text-zinc-600">
-                    {order.items?.length || 0} item{(order.items?.length || 0) !== 1 ? "s" : ""}
-                  </span>
+                  <span className="text-sm text-zinc-600">{order.items?.length || 0} item{(order.items?.length || 0) !== 1 ? "s" : ""}</span>
                 </td>
+                <td className="px-4 py-3"><span className="text-sm font-medium text-zinc-900">&#8377;{order.pricing?.total?.toLocaleString("en-IN") || "0"}</span></td>
+                <td className="px-4 py-3 hidden md:table-cell"><PaymentBadge status={order.payment?.status} /></td>
                 <td className="px-4 py-3">
-                  <span className="text-sm font-medium text-zinc-900">
-                    &#8377;{order.pricing?.total?.toLocaleString("en-IN") || "0"}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <StatusBadge status={order.status} />
+                    {order.giftWrap && (
+                      <span title="Gift wrap requested" className="inline-flex items-center rounded-full bg-purple-50 p-1 text-purple-600">
+                        <GiftIcon className="h-3.5 w-3.5" />
+                      </span>
+                    )}
+                  </div>
                 </td>
-                <td className="px-4 py-3 hidden md:table-cell">
-                  <PaymentBadge status={order.payment?.status} />
-                </td>
-                <td className="px-4 py-3">
-                  <StatusBadge status={order.status} />
-                </td>
-                <td className="px-4 py-3">
-                  <span className="text-xs text-zinc-400">
-                    {formatDate(order.createdAt)}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <ChevronRightIcon className="h-4 w-4 text-zinc-300" />
-                </td>
+                <td className="px-4 py-3"><span className="text-xs text-zinc-400">{formatDate(order.createdAt)}</span></td>
+                <td className="px-4 py-3"><ChevronRightIcon className="h-4 w-4 text-zinc-300" /></td>
               </tr>
             )}
           />
@@ -423,38 +431,17 @@ export default function OrdersPage() {
         </>
       )}
 
-      {/* Order Detail Dialog */}
       <Dialog.Root open={detailOpen} onOpenChange={setDetailOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/30" />
           <Dialog.Content className="fixed right-0 top-0 z-50 h-full w-full max-w-2xl overflow-y-auto bg-white shadow-xl focus:outline-none" aria-describedby={undefined}>
-            <VisuallyHidden.Root>
-              <Dialog.Title>Order Details</Dialog.Title>
-            </VisuallyHidden.Root>
+            <VisuallyHidden.Root><Dialog.Title>Order Details</Dialog.Title></VisuallyHidden.Root>
             {detailLoading ? (
               <div className="flex h-full items-center justify-center">
                 <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-900" />
               </div>
             ) : selectedOrder ? (
-              <OrderDetail
-                order={selectedOrder}
-                onClose={() => setDetailOpen(false)}
-                availableTransitions={availableTransitions}
-                newStatus={newStatus}
-                setNewStatus={setNewStatus}
-                statusNote={statusNote}
-                setStatusNote={setStatusNote}
-                statusUpdating={statusUpdating}
-                onStatusUpdate={handleStatusUpdate}
-                noteText={noteText}
-                setNoteText={setNoteText}
-                noteAdding={noteAdding}
-                onAddNote={handleAddNote}
-                onUpdated={(o) => {
-                  setSelectedOrder(o);
-                  fetchOrders();
-                }}
-              />
+              <OrderDetail order={selectedOrder} onUpdated={(o) => { setSelectedOrder(o); fetchOrders(); }} />
             ) : null}
           </Dialog.Content>
         </Dialog.Portal>
@@ -463,297 +450,41 @@ export default function OrdersPage() {
   );
 }
 
-function OrderDetail({
-  order,
-  onClose,
-  availableTransitions,
-  newStatus,
-  setNewStatus,
-  statusNote,
-  setStatusNote,
-  statusUpdating,
-  onStatusUpdate,
-  noteText,
-  setNoteText,
-  noteAdding,
-  onAddNote,
-  onUpdated,
-}) {
+/* ------------------------------------------------------------------ */
+/* Order detail drawer                                                */
+/* ------------------------------------------------------------------ */
+
+function OrderDetail({ order, onUpdated }) {
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4">
         <div>
-          <h2 className="text-base font-semibold text-zinc-900">
-            Order {order.orderId}
-          </h2>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            {formatDateTime(order.createdAt)}
-          </p>
+          <h2 className="text-base font-semibold text-zinc-900">Order {order.orderId}</h2>
+          <p className="text-xs text-zinc-400 mt-0.5">{formatDateTime(order.createdAt)}</p>
         </div>
         <Dialog.Close asChild>
-          <button className="rounded p-1.5 text-zinc-400 hover:text-zinc-600 transition-colors">
-            <Cross1Icon className="h-4 w-4" />
-          </button>
+          <button className="rounded p-1.5 text-zinc-400 hover:text-zinc-600 transition-colors"><Cross1Icon className="h-4 w-4" /></button>
         </Dialog.Close>
       </div>
 
-      {/* Body */}
       <div className="flex-1 overflow-y-auto">
         <Tabs.Root defaultValue="details" className="flex flex-col h-full">
           <Tabs.List className="flex border-b border-zinc-200 px-6">
-            <Tabs.Trigger
-              value="details"
-              className="px-4 py-2.5 text-sm font-medium text-zinc-400 border-b-2 border-transparent transition-colors data-[state=active]:text-zinc-900 data-[state=active]:border-zinc-900"
-            >
-              Details
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="shipment"
-              className="px-4 py-2.5 text-sm font-medium text-zinc-400 border-b-2 border-transparent transition-colors data-[state=active]:text-zinc-900 data-[state=active]:border-zinc-900"
-            >
-              Shipment
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="notes"
-              className="px-4 py-2.5 text-sm font-medium text-zinc-400 border-b-2 border-transparent transition-colors data-[state=active]:text-zinc-900 data-[state=active]:border-zinc-900"
-            >
-              Notes ({order.adminNotes?.length || 0})
+            <Tabs.Trigger value="details" className="px-4 py-2.5 text-sm font-medium text-zinc-400 border-b-2 border-transparent transition-colors data-[state=active]:text-zinc-900 data-[state=active]:border-zinc-900">Details</Tabs.Trigger>
+            <Tabs.Trigger value="activity" className="px-4 py-2.5 text-sm font-medium text-zinc-400 border-b-2 border-transparent transition-colors data-[state=active]:text-zinc-900 data-[state=active]:border-zinc-900">
+              Activity ({order.adminNotes?.length || 0})
             </Tabs.Trigger>
           </Tabs.List>
 
-          {/* Details Tab */}
           <Tabs.Content value="details" className="flex-1 p-6 space-y-6">
-            {/* Status + Payment row */}
-            <div className="flex items-center gap-3">
-              <StatusBadge status={order.status} />
-              <PaymentBadge status={order.payment?.status} />
-              {order.payment?.method && (
-                <span className="text-xs text-zinc-400 uppercase tracking-wide">
-                  {order.payment.method}
-                </span>
-              )}
-            </div>
-
-            {/* Status Update */}
-            {availableTransitions.length > 0 && (
-              <div className="rounded-lg border border-zinc-200 p-4 space-y-3">
-                <p className="text-sm font-medium text-zinc-700">Update Status</p>
-                <div className="flex flex-wrap gap-2">
-                  {availableTransitions.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setNewStatus(s)}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
-                        newStatus === s
-                          ? "bg-zinc-900 text-white"
-                          : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50"
-                      }`}
-                    >
-                      {s.replace(/_/g, " ")}
-                    </button>
-                  ))}
-                </div>
-                {newStatus && (
-                  <>
-                    <input
-                      type="text"
-                      value={statusNote}
-                      onChange={(e) => setStatusNote(e.target.value)}
-                      placeholder="Optional note..."
-                      className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400"
-                    />
-                    <button
-                      onClick={onStatusUpdate}
-                      disabled={statusUpdating}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50"
-                    >
-                      {statusUpdating ? (
-                        <ReloadIcon className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <CheckCircledIcon className="h-3.5 w-3.5" />
-                      )}
-                      Update to {newStatus.replace(/_/g, " ")}
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Return request actions */}
-            {order.status === "return_requested" && (
-              <ReturnRequestActions order={order} onUpdated={onUpdated} />
-            )}
-
-            {/* Customer Info */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Customer</h3>
-              <div className="rounded-lg border border-zinc-200 p-4 space-y-1">
-                <p className="text-sm font-medium text-zinc-900">
-                  {order.user?.fullName || order.shippingAddress?.fullName || "Guest"}
-                </p>
-                <p className="text-sm text-zinc-500">
-                  {order.user?.email || order.contactEmail || "—"}
-                </p>
-                <p className="text-sm text-zinc-500">
-                  {order.user?.phone
-                    ? `${order.user.countryCode || "+91"} ${order.user.phone}`
-                    : (order.contactPhone || "—")}
-                </p>
-              </div>
-            </div>
-
-            {/* Shipping Address */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Shipping Address</h3>
-              <div className="rounded-lg border border-zinc-200 p-4 space-y-0.5">
-                <p className="text-sm text-zinc-900">{order.shippingAddress?.fullName}</p>
-                <p className="text-sm text-zinc-500">{order.shippingAddress?.address1}</p>
-                {order.shippingAddress?.address2 && (
-                  <p className="text-sm text-zinc-500">{order.shippingAddress.address2}</p>
-                )}
-                <p className="text-sm text-zinc-500">
-                  {order.shippingAddress?.city}, {order.shippingAddress?.state} {order.shippingAddress?.pincode}
-                </p>
-                {order.shippingAddress?.phone && (
-                  <p className="text-sm text-zinc-400 mt-1">
-                    {order.shippingAddress.countryCode || "+91"} {order.shippingAddress.phone}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Items */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
-                Items ({order.items?.length || 0})
-              </h3>
-              <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
-                {(order.items || []).map((item, idx) => {
-                  const product = item.product;
-                  const primaryImg = product?.images?.find((i) => i.isPrimary)?.url || product?.images?.[0]?.url;
-                  const img = item.image || primaryImg || "/images/placeholder.jpg";
-                  return (
-                    <div key={idx} className="flex items-center gap-3 p-3">
-                      <img
-                        src={img}
-                        alt={item.name}
-                        className="h-12 w-12 rounded-lg object-cover bg-zinc-100 shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-zinc-900 truncate">{item.name}</p>
-                        <p className="text-xs text-zinc-400">
-                          Qty: {item.quantity}
-                          {item.selectedSize ? ` / Size: ${item.selectedSize}` : ""}
-                        </p>
-                      </div>
-                      <span className="text-sm font-medium text-zinc-900 shrink-0">
-                        &#8377;{(item.price * item.quantity).toLocaleString("en-IN")}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Pricing */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Pricing</h3>
-              <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-500">Subtotal</span>
-                  <span className="text-zinc-700">&#8377;{order.pricing?.subtotal?.toLocaleString("en-IN") || "0"}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-500">Shipping</span>
-                  <span className="text-zinc-700">&#8377;{order.pricing?.shipping?.toLocaleString("en-IN") || "0"}</span>
-                </div>
-                {order.pricing?.discount > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-zinc-500">Discount</span>
-                    <span className="text-green-600">-&#8377;{order.pricing.discount.toLocaleString("en-IN")}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm font-semibold pt-2 border-t border-zinc-100">
-                  <span className="text-zinc-900">Total</span>
-                  <span className="text-zinc-900">&#8377;{order.pricing?.total?.toLocaleString("en-IN") || "0"}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Shipping Info */}
-            {(order.shipping?.awbNumber || order.shipping?.courierName) && (
-              <div className="space-y-2">
-                <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Shipping Info</h3>
-                <div className="rounded-lg border border-zinc-200 p-4 space-y-1">
-                  {order.shipping.courierName && (
-                    <p className="text-sm text-zinc-700">Courier: {order.shipping.courierName}</p>
-                  )}
-                  {order.shipping.awbNumber && (
-                    <p className="text-sm text-zinc-700">AWB: {order.shipping.awbNumber}</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Timestamps */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Timeline</h3>
-              <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
-                <TimelineRow label="Ordered" date={order.createdAt} />
-                <TimelineRow label="Confirmed" date={order.confirmedAt} />
-                <TimelineRow label="Shipped" date={order.shippedAt} />
-                <TimelineRow label="Delivered" date={order.deliveredAt} />
-                {order.cancelledAt && <TimelineRow label="Cancelled" date={order.cancelledAt} />}
-              </div>
-            </div>
+            <FulfillmentBlock order={order} onUpdated={onUpdated} />
+            <ItemsSection order={order} />
+            <PricingSection order={order} />
+            <CustomerDeliverySection order={order} />
           </Tabs.Content>
 
-          {/* Shipment Tab */}
-          <Tabs.Content value="shipment" className="flex-1 p-6">
-            <ShipmentTab order={order} onUpdated={onUpdated} />
-          </Tabs.Content>
-
-          {/* Notes Tab */}
-          <Tabs.Content value="notes" className="flex-1 p-6 space-y-4">
-            {/* Add note */}
-            <div className="space-y-2">
-              <textarea
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                placeholder="Add a note..."
-                rows={3}
-                className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 resize-none"
-              />
-              <button
-                onClick={onAddNote}
-                disabled={!noteText.trim() || noteAdding}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50"
-              >
-                {noteAdding ? (
-                  <ReloadIcon className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <ChatBubbleIcon className="h-3.5 w-3.5" />
-                )}
-                Add Note
-              </button>
-            </div>
-
-            {/* Notes list */}
-            <div className="space-y-3">
-              {(order.adminNotes || []).length === 0 ? (
-                <p className="text-sm text-zinc-400 text-center py-8">No notes yet</p>
-              ) : (
-                [...(order.adminNotes || [])].reverse().map((note, idx) => (
-                  <div key={idx} className="rounded-lg border border-zinc-200 p-3 space-y-1">
-                    <p className="text-sm text-zinc-700">{note.note}</p>
-                    <p className="text-xs text-zinc-400">
-                      {note.addedBy?.fullName || "Admin"} &middot; {formatDateTime(note.addedAt)}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
+          <Tabs.Content value="activity" className="flex-1 p-6">
+            <ActivityFeed order={order} onUpdated={onUpdated} />
           </Tabs.Content>
         </Tabs.Root>
       </div>
@@ -761,22 +492,35 @@ function OrderDetail({
   );
 }
 
-function TimelineRow({ label, date }) {
-  if (!date) return null;
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm text-zinc-500">{label}</span>
-      <span className="text-xs text-zinc-400">{formatDateTime(date)}</span>
-    </div>
-  );
-}
+/* ------------------------------------------------------------------ */
+/* Fulfillment block                                                  */
+/* ------------------------------------------------------------------ */
 
-function ReturnRequestActions({ order, onUpdated }) {
+function FulfillmentBlock({ order, onUpdated }) {
   const { showToast } = useToast();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState("");
+  const s = order.shipping || {};
+  const status = order.status;
+  const cta = ADMIN_CTA[status];
+  const help = STAGE_HELP[status] || { owner: "automatic", text: "" };
+  const canCancel = (VALID_TRANSITIONS[status] || []).includes("cancelled");
+  const isReturnReq = status === "return_requested";
 
-  const act = async (action) => {
-    setBusy(true);
+  const setStatus = async (to) => {
+    setBusy(to);
+    try {
+      const data = await adminOrderApi.updateStatus(order._id, to);
+      onUpdated(data.order || data);
+      showToast(`Marked as "${plain(to)}"`, "success");
+    } catch (err) {
+      showToast(err?.response?.data?.message || "Failed to update", "error");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const approveReturn = async (action) => {
+    setBusy(action);
     try {
       const data = await adminOrderApi.approveReturn(order._id, action);
       onUpdated(data.order || data);
@@ -784,66 +528,182 @@ function ReturnRequestActions({ order, onUpdated }) {
     } catch (err) {
       showToast(err?.response?.data?.message || "Failed", "error");
     } finally {
-      setBusy(false);
+      setBusy("");
     }
   };
 
+  const stepIdx = STEP_INDEX[status] ?? -1;
+  const isBranch = stepIdx === -1; // cancelled / rto / return / refund
+
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 space-y-2">
-      <p className="text-sm font-medium text-amber-800">Return requested</p>
-      {order.returnRequest?.reason && (
-        <p className="text-xs text-amber-700">Reason: {order.returnRequest.reason}</p>
-      )}
-      <p className="text-xs text-zinc-500">
-        Approving creates a Shiprocket reverse-pickup automatically.
-      </p>
-      <div className="flex gap-2">
-        <button
-          onClick={() => act("approve")}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-        >
-          <CheckIcon className="h-3.5 w-3.5" /> Approve
-        </button>
-        <button
-          onClick={() => act("reject")}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
-        >
-          <Cross1Icon className="h-3.5 w-3.5" /> Reject
-        </button>
+    <div className="space-y-4">
+      {/* Stepper */}
+      <div className="rounded-lg border border-zinc-200 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Fulfilment</h3>
+          <div className="flex items-center gap-2">
+            <StatusBadge status={status} />
+            <PaymentBadge status={order.payment?.status} />
+          </div>
+        </div>
+        <div className="flex items-center gap-1 overflow-x-auto pb-1">
+          {STEPS.map((step, i) => {
+            const done = !isBranch && i < stepIdx;
+            const current = !isBranch && i === stepIdx;
+            return (
+              <div key={step.code} className="flex items-center shrink-0">
+                <div className="flex flex-col items-center w-[68px] text-center">
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${
+                    done ? "bg-zinc-900 text-white" : current ? "ring-2 ring-zinc-900 text-zinc-900" : "bg-zinc-100 text-zinc-400"
+                  }`}>
+                    {done ? <CheckIcon className="h-3 w-3" /> : i + 1}
+                  </span>
+                  <span className={`mt-1 text-[10px] leading-tight ${current ? "font-semibold text-zinc-900" : "text-zinc-400"}`}>{plain(step.code)}</span>
+                  <span className={`mt-0.5 h-1 w-1 rounded-full ${OWNERS[step.owner]?.dot || "bg-zinc-300"}`} title={OWNERS[step.owner]?.label} />
+                </div>
+                {i < STEPS.length - 1 && <span className={`h-px w-3 ${done ? "bg-zinc-900" : "bg-zinc-200"}`} />}
+              </div>
+            );
+          })}
+        </div>
+        {isBranch && (
+          <p className="mt-2 text-xs text-orange-700">This order is on the <strong>{plain(status)}</strong> path (outside the normal delivery flow).</p>
+        )}
       </div>
+
+      {/* Current stage + primary action */}
+      <div className="rounded-lg border border-zinc-200 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-zinc-900">{plain(status)}</p>
+            <p className="text-[11px] text-zinc-400">status: {status}</p>
+          </div>
+          <OwnerBadge owner={help.owner} />
+        </div>
+        <p className="text-xs text-zinc-500">{help.text}</p>
+
+        {/* Primary CTA (admin's routine next step) */}
+        {cta && (
+          cta.confirm ? (
+            <ConfirmAction
+              title={cta.confirm.title}
+              description={cta.confirm.description}
+              confirmLabel={cta.label}
+              onConfirm={() => setStatus(cta.to)}
+              trigger={
+                <button className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50" disabled={!!busy}>
+                  <IconTruck className="h-4 w-4" /> {cta.label}
+                </button>
+              }
+            />
+          ) : (
+            <button onClick={() => setStatus(cta.to)} disabled={!!busy} className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50">
+              {busy === cta.to ? <ReloadIcon className="h-3.5 w-3.5 animate-spin" /> : <CheckCircledIcon className="h-3.5 w-3.5" />} {cta.label}
+            </button>
+          )
+        )}
+
+        {/* Return approve / reject */}
+        {isReturnReq && (
+          <div className="flex gap-2">
+            <button onClick={() => approveReturn("approve")} disabled={!!busy} className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50">
+              <CheckIcon className="h-3.5 w-3.5" /> Approve return
+            </button>
+            <button onClick={() => approveReturn("reject")} disabled={!!busy} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50">
+              <Cross1Icon className="h-3.5 w-3.5" /> Reject
+            </button>
+          </div>
+        )}
+
+        {/* Cancel (quiet secondary) */}
+        {canCancel && (
+          <ConfirmAction
+            title="Cancel this order?"
+            description="The order will be cancelled and any booked courier shipment cancelled. Paid orders are refunded automatically."
+            confirmLabel="Cancel order"
+            danger
+            onConfirm={() => setStatus("cancelled")}
+            trigger={<button className="text-xs text-red-500 hover:text-red-600">Cancel order</button>}
+          />
+        )}
+      </div>
+
+      {/* Shipment facts */}
+      {(s.shiprocketOrderId || s.awbNumber) && <ShipmentFacts s={s} />}
+
+      {/* Advanced / manual overrides */}
+      <AdvancedOps order={order} onUpdated={onUpdated} />
     </div>
   );
 }
 
-function InfoRow({ label, value, mono }) {
+function ShipmentFacts({ s }) {
+  const [copied, setCopied] = useState(false);
+  const copy = (v) => {
+    if (!v) return;
+    navigator.clipboard?.writeText(v);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  };
+  return (
+    <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
+      <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Shipment</h3>
+      <Fact label="Tracking number">
+        {s.awbNumber ? (
+          <span className="inline-flex items-center gap-1 font-mono">
+            {s.awbNumber}
+            <button onClick={() => copy(s.awbNumber)} className="text-zinc-400 hover:text-zinc-700" title="Copy">
+              {copied ? <CheckIcon className="h-3 w-3" /> : <CopyIcon className="h-3 w-3" />}
+            </button>
+          </span>
+        ) : "— (not booked yet)"}
+      </Fact>
+      <Fact label="Courier">{s.courierName || "—"}</Fact>
+      <Fact label="Latest status">{s.lastTrackingStatus || "—"}</Fact>
+      <Fact label="Pickup">{s.pickupScheduledDate ? formatDateTime(s.pickupScheduledDate) : "—"}</Fact>
+      <Fact label="Est. delivery">{s.estimatedDelivery ? formatDate(s.estimatedDelivery) : "—"}</Fact>
+      <Fact label="Last update">{s.lastWebhookAt ? formatDateTime(s.lastWebhookAt) : "—"}</Fact>
+      <div className="flex flex-wrap gap-3 pt-1">
+        {s.trackingUrl && <a href={s.trackingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"><ExternalLinkIcon className="h-3 w-3" /> Track parcel</a>}
+        {s.labelUrl && <a href={s.labelUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"><ExternalLinkIcon className="h-3 w-3" /> Shipping label</a>}
+        {s.manifestUrl && <a href={s.manifestUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"><ExternalLinkIcon className="h-3 w-3" /> Handover sheet</a>}
+      </div>
+      {s.returnShipment?.awbNumber && (
+        <div className="mt-2 rounded border border-zinc-100 bg-zinc-50 p-2">
+          <p className="text-[11px] font-medium text-zinc-500">Return pickup</p>
+          <Fact label="Tracking">{s.returnShipment.awbNumber}</Fact>
+          <Fact label="Courier">{s.returnShipment.courierName || "—"}</Fact>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Fact({ label, children }) {
   return (
     <div className="flex items-start justify-between gap-3">
       <span className="text-xs text-zinc-400 shrink-0">{label}</span>
-      <span className={`text-xs text-zinc-700 text-right break-all ${mono ? "font-mono" : ""}`}>
-        {value || "—"}
-      </span>
+      <span className="text-xs text-zinc-700 text-right break-all">{children}</span>
     </div>
   );
 }
 
-function ShipmentTab({ order, onUpdated }) {
+/* Advanced / manual override actions (each explains it's normally automatic). */
+function AdvancedOps({ order, onUpdated }) {
   const { showToast } = useToast();
-  const s = order.shipping || {};
-  const [busy, setBusy] = useState(""); // which action is running
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState("");
   const [couriers, setCouriers] = useState(null);
   const [courierId, setCourierId] = useState("");
-  const [tracking, setTracking] = useState(null);
   const [ndrComment, setNdrComment] = useState("");
+  const s = order.shipping || {};
 
-  // Wrap an adminShiprocketApi call: set busy, run, update order, toast.
-  const run = async (key, fn, successMsg) => {
+  const run = async (key, fn, msg) => {
     setBusy(key);
     try {
       const data = await fn();
       if (data?.order) onUpdated(data.order);
-      if (successMsg) showToast(successMsg, "success");
+      if (msg) showToast(msg, "success");
       return data;
     } catch (err) {
       showToast(err?.response?.data?.message || "Operation failed", "error");
@@ -852,217 +712,304 @@ function ShipmentTab({ order, onUpdated }) {
       setBusy("");
     }
   };
+  const openUrl = (u) => (u ? window.open(u, "_blank", "noopener") : showToast("No document URL", "error"));
 
-  const openUrl = (url) => {
-    if (url) window.open(url, "_blank", "noopener");
-    else showToast("No document URL returned", "error");
-  };
-
-  const checkCouriers = async () => {
-    const data = await run("serviceability", () => adminShiprocketApi.serviceability(order._id));
-    if (data?.serviceability) setCouriers(data.serviceability.couriers || []);
-  };
-
-  const doTrack = async () => {
-    const data = await run("track", () => adminShiprocketApi.track(order._id));
-    if (data?.tracking) setTracking(data.tracking);
-  };
-
-  const created = !!s.shiprocketOrderId;
-  const hasShipment = !!s.shipmentId;
-  const hasAwb = !!s.awbNumber;
-
-  const Btn = ({ k, onClick, children, disabled, variant = "secondary" }) => (
-    <button
-      onClick={onClick}
-      disabled={!!busy || disabled}
-      className={
-        variant === "primary"
-          ? "inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-          : variant === "danger"
-            ? "inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-            : "inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
-      }
-    >
-      {busy === k ? <ReloadIcon className="h-3.5 w-3.5 animate-spin" /> : children}
-    </button>
-  );
+  const AUTO_NOTE = "This normally happens automatically when you click \"Hand to courier\". Only use this to override or retry manually.";
 
   return (
-    <div className="space-y-6">
-      {/* Summary */}
-      <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Shiprocket</h3>
-          <div className="flex gap-1.5">
-            {s.isRTO && (
-              <span className="rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-medium text-orange-700">RTO</span>
-            )}
-            {s.ndrAttempts > 0 && (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                NDR ×{s.ndrAttempts}
-              </span>
-            )}
-          </div>
+    <div className="rounded-lg border border-zinc-200">
+      <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between px-4 py-3 text-left">
+        <div>
+          <p className="text-sm font-medium text-zinc-700">Advanced / manual overrides</p>
+          <p className="text-[11px] text-zinc-400">You normally don't need these — the steps above happen automatically.</p>
         </div>
-        <InfoRow label="Order ID" value={s.shiprocketOrderId} mono />
-        <InfoRow label="Shipment ID" value={s.shipmentId} mono />
-        <InfoRow label="AWB" value={s.awbNumber} mono />
-        <InfoRow label="Courier" value={s.courierName} />
-        <InfoRow label="Tracking status" value={s.lastTrackingStatus ? `${s.lastTrackingStatus}${s.lastTrackingStatusId ? ` (${s.lastTrackingStatusId})` : ""}` : null} />
-        <InfoRow label="Pickup" value={s.pickupScheduledDate ? formatDateTime(s.pickupScheduledDate) : null} />
-        <InfoRow label="ETA" value={s.estimatedDelivery ? formatDate(s.estimatedDelivery) : null} />
-        <InfoRow label="Last update" value={s.lastWebhookAt ? formatDateTime(s.lastWebhookAt) : null} />
-        {s.trackingUrl && (
-          <a href={s.trackingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
-            <ExternalLinkIcon className="h-3 w-3" /> Public tracking
-          </a>
-        )}
-      </div>
-
-      {/* Create / sync */}
-      {!created && (
-        <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
-          <p className="text-sm text-zinc-600">No Shiprocket order yet.</p>
-          <Btn k="sync" variant="primary" onClick={() => run("sync", () => adminShiprocketApi.sync(order._id), "Shiprocket order created")}>
-            <ReloadIcon className="h-3.5 w-3.5" /> Create Shiprocket order
-          </Btn>
-        </div>
-      )}
-
-      {/* AWB / courier */}
-      {created && !hasAwb && (
-        <div className="rounded-lg border border-zinc-200 p-4 space-y-3">
-          <p className="text-sm font-medium text-zinc-700">Assign AWB</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Btn k="serviceability" onClick={checkCouriers}>Check couriers</Btn>
-            {couriers && (
-              <select
-                value={courierId}
-                onChange={(e) => setCourierId(e.target.value)}
-                className="rounded-lg border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
-              >
-                <option value="">Auto (recommended)</option>
-                {couriers.map((c) => (
-                  <option key={c.courierId} value={c.courierId}>
-                    {c.name} — ₹{c.rate} / {c.estimatedDays}d
-                  </option>
-                ))}
-              </select>
-            )}
-            <Btn k="awb" variant="primary" disabled={!hasShipment} onClick={() => run("awb", () => adminShiprocketApi.assignAwb(order._id, courierId || undefined), "AWB assigned")}>
-              Assign AWB
-            </Btn>
-          </div>
-        </div>
-      )}
-
-      {/* Operations */}
-      {created && (
-        <div className="rounded-lg border border-zinc-200 p-4 space-y-3">
-          <p className="text-sm font-medium text-zinc-700">Operations</p>
-          <div className="flex flex-wrap gap-2">
-            <Btn k="pickup" disabled={!hasShipment} onClick={() => run("pickup", () => adminShiprocketApi.pickup(order._id), "Pickup scheduled")}>Schedule pickup</Btn>
-            <Btn k="label" disabled={!hasShipment} onClick={async () => { const d = await run("label", () => adminShiprocketApi.label(order._id)); openUrl(d?.url); }}>Label</Btn>
-            <Btn k="manifest" disabled={!hasShipment} onClick={async () => { const d = await run("manifest", () => adminShiprocketApi.manifest(order._id)); openUrl(d?.url); }}>Manifest</Btn>
-            <Btn k="invoice" onClick={async () => { const d = await run("invoice", () => adminShiprocketApi.invoice(order._id)); openUrl(d?.url); }}>Invoice</Btn>
-            <Btn k="track" disabled={!hasAwb} onClick={doTrack}>Track</Btn>
-            <Btn k="cancel" variant="danger" onClick={() => run("cancel", () => adminShiprocketApi.cancel(order._id), "Cancellation requested")}>Cancel shipment</Btn>
-          </div>
-
-          {/* NDR */}
-          {hasAwb && (
-            <div className="pt-2 border-t border-zinc-100 space-y-2">
-              <p className="text-xs font-medium text-zinc-500">NDR action</p>
-              <input
-                type="text"
-                value={ndrComment}
-                onChange={(e) => setNdrComment(e.target.value)}
-                placeholder="Comment (required)"
-                className="w-full rounded-lg border border-zinc-200 px-3 py-1.5 text-xs outline-none focus:border-zinc-400"
-              />
-              <div className="flex gap-2">
-                <Btn k="ndr-re" disabled={!ndrComment.trim()} onClick={() => run("ndr-re", () => adminShiprocketApi.ndr(order._id, "re-attempt", ndrComment), "Re-attempt requested")}>Re-attempt</Btn>
-                <Btn k="ndr-ret" variant="danger" disabled={!ndrComment.trim()} onClick={() => run("ndr-ret", () => adminShiprocketApi.ndr(order._id, "return", ndrComment), "RTO requested")}>Return (RTO)</Btn>
+        <ChevronDownIcon className={`h-4 w-4 text-zinc-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="border-t border-zinc-100 p-4 space-y-3">
+          {!s.shiprocketOrderId && (
+            <ConfirmAction title="Send to Shiprocket now?" description={AUTO_NOTE} confirmLabel="Send"
+              onConfirm={() => run("sync", () => adminShiprocketApi.sync(order._id), "Sent to Shiprocket")}
+              trigger={<OverrideBtn busy={busy === "sync"}>Send to Shiprocket</OverrideBtn>} />
+          )}
+          {s.shiprocketOrderId && !s.awbNumber && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <OverrideBtn busy={busy === "couriers"} onClick={async () => { const d = await run("couriers", () => adminShiprocketApi.serviceability(order._id)); if (d?.serviceability) setCouriers(d.serviceability.couriers || []); }}>Check couriers</OverrideBtn>
+                {couriers && (
+                  <select value={courierId} onChange={(e) => setCourierId(e.target.value)} className="rounded-lg border border-zinc-200 px-2 py-1.5 text-xs">
+                    <option value="">Auto (recommended)</option>
+                    {couriers.map((c) => <option key={c.courierId} value={c.courierId}>{c.name} — ₹{c.rate} / {c.estimatedDays}d</option>)}
+                  </select>
+                )}
+                <ConfirmAction title="Assign tracking number?" description={AUTO_NOTE} confirmLabel="Assign"
+                  onConfirm={() => run("awb", () => adminShiprocketApi.assignAwb(order._id, courierId || undefined), "Tracking number assigned")}
+                  trigger={<OverrideBtn busy={busy === "awb"} primary>Assign tracking number</OverrideBtn>} />
               </div>
             </div>
           )}
-
-          {/* Manual return */}
-          {order.status === "delivered" && !s.returnShipment?.shipmentId && (
-            <div className="pt-2 border-t border-zinc-100">
-              <Btn k="return" onClick={() => run("return", () => adminShiprocketApi.createReturn(order._id), "Return pickup created")}>Create return pickup</Btn>
+          <div className="flex flex-wrap gap-2">
+            <ConfirmAction title="Schedule pickup?" description={AUTO_NOTE} confirmLabel="Schedule"
+              onConfirm={() => run("pickup", () => adminShiprocketApi.pickup(order._id), "Pickup scheduled")}
+              trigger={<OverrideBtn busy={busy === "pickup"}>Schedule pickup</OverrideBtn>} />
+            <OverrideBtn busy={busy === "label"} onClick={async () => { const d = await run("label", () => adminShiprocketApi.label(order._id)); openUrl(d?.url); }}>Label</OverrideBtn>
+            <OverrideBtn busy={busy === "manifest"} onClick={async () => { const d = await run("manifest", () => adminShiprocketApi.manifest(order._id)); openUrl(d?.url); }}>Handover sheet</OverrideBtn>
+            <OverrideBtn busy={busy === "invoice"} onClick={async () => { const d = await run("invoice", () => adminShiprocketApi.invoice(order._id)); openUrl(d?.url); }}>Invoice</OverrideBtn>
+            <OverrideBtn busy={busy === "track"} onClick={() => run("track", () => adminShiprocketApi.track(order._id))} disabled={!s.awbNumber}>Refresh tracking</OverrideBtn>
+            <ConfirmAction title="Cancel the courier shipment?" description="Cancels the booking with the courier. The order status is not changed here." confirmLabel="Cancel shipment" danger
+              onConfirm={() => run("cancel", () => adminShiprocketApi.cancel(order._id), "Cancellation requested")}
+              trigger={<OverrideBtn busy={busy === "cancel"} danger>Cancel shipment</OverrideBtn>} />
+          </div>
+          {s.awbNumber && (
+            <div className="space-y-2 pt-2 border-t border-zinc-100">
+              <p className="text-[11px] font-medium text-zinc-500">Failed delivery (NDR) — normally handled automatically</p>
+              <input value={ndrComment} onChange={(e) => setNdrComment(e.target.value)} placeholder="Comment (required)" className="w-full rounded-lg border border-zinc-200 px-3 py-1.5 text-xs" />
+              <div className="flex gap-2">
+                <OverrideBtn busy={busy === "ndrre"} disabled={!ndrComment.trim()} onClick={() => run("ndrre", () => adminShiprocketApi.ndr(order._id, "re-attempt", ndrComment), "Re-attempt requested")}>Re-attempt delivery</OverrideBtn>
+                <OverrideBtn busy={busy === "ndrret"} danger disabled={!ndrComment.trim()} onClick={() => run("ndrret", () => adminShiprocketApi.ndr(order._id, "return", ndrComment), "Return requested")}>Return to us</OverrideBtn>
+              </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Documents */}
-      {(s.labelUrl || s.manifestUrl) && (
-        <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
-          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Documents</h3>
-          {s.labelUrl && (
-            <a href={s.labelUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-blue-600 hover:underline">
-              <ExternalLinkIcon className="h-3 w-3" /> Shipping label
-            </a>
+          {order.status === "delivered" && !s.returnShipment?.shipmentId && (
+            <div className="pt-2 border-t border-zinc-100">
+              <ConfirmAction title="Create a return pickup?" description="Books a reverse pickup from the customer back to your warehouse." confirmLabel="Create return"
+                onConfirm={() => run("return", () => adminShiprocketApi.createReturn(order._id), "Return pickup created")}
+                trigger={<OverrideBtn busy={busy === "return"}>Create return pickup</OverrideBtn>} />
+            </div>
           )}
-          {s.manifestUrl && (
-            <a href={s.manifestUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-blue-600 hover:underline">
-              <ExternalLinkIcon className="h-3 w-3" /> Manifest
-            </a>
-          )}
-        </div>
-      )}
-
-      {/* Return shipment */}
-      {s.returnShipment?.shipmentId && (
-        <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
-          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Return shipment</h3>
-          <InfoRow label="AWB" value={s.returnShipment.awbNumber} mono />
-          <InfoRow label="Courier" value={s.returnShipment.courierName} />
-          {s.returnShipment.trackingUrl && (
-            <a href={s.returnShipment.trackingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
-              <ExternalLinkIcon className="h-3 w-3" /> Track return
-            </a>
-          )}
-        </div>
-      )}
-
-      {/* Tracking scans */}
-      {tracking && (
-        <div className="rounded-lg border border-zinc-200 p-4 space-y-2">
-          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Tracking</h3>
-          <TrackingScans tracking={tracking} />
         </div>
       )}
     </div>
   );
 }
 
-// Render the scan history from a Shiprocket track-by-AWB response (shape varies).
-function TrackingScans({ tracking }) {
-  const data = tracking?.tracking_data || tracking;
-  const activities =
-    data?.shipment_track_activities ||
-    data?.shipment_track ||
-    data?.scans ||
-    [];
-  if (!Array.isArray(activities) || activities.length === 0) {
-    return <p className="text-xs text-zinc-400">No tracking activity yet.</p>;
-  }
+function OverrideBtn({ children, onClick, busy, disabled, primary, danger }) {
+  const cls = primary
+    ? "bg-zinc-900 text-white hover:bg-zinc-800"
+    : danger
+    ? "border border-red-200 text-red-600 hover:bg-red-50"
+    : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50";
   return (
-    <ol className="space-y-2">
-      {activities.map((a, i) => (
-        <li key={i} className="flex gap-2">
-          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300" />
-          <div>
-            <p className="text-xs text-zinc-700">{a.activity || a.status || a["sr-status-label"] || "—"}</p>
-            <p className="text-[11px] text-zinc-400">
-              {[a.location, a.date || a.time].filter(Boolean).join(" · ")}
-            </p>
+    <button onClick={onClick} disabled={busy || disabled} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${cls}`}>
+      {busy ? <ReloadIcon className="h-3.5 w-3.5 animate-spin" /> : null}{children}
+    </button>
+  );
+}
+
+/* Radix AlertDialog confirm wrapper */
+function ConfirmAction({ trigger, title, description, confirmLabel = "Confirm", onConfirm, danger }) {
+  return (
+    <AlertDialog.Root>
+      <AlertDialog.Trigger asChild>{trigger}</AlertDialog.Trigger>
+      <AlertDialog.Portal>
+        <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-black/40" />
+        <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[60] w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-5 shadow-xl">
+          <AlertDialog.Title className="text-sm font-semibold text-zinc-900">{title}</AlertDialog.Title>
+          <AlertDialog.Description className="mt-1.5 text-sm text-zinc-500">{description}</AlertDialog.Description>
+          <div className="mt-4 flex justify-end gap-2">
+            <AlertDialog.Cancel asChild>
+              <button className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50">Cancel</button>
+            </AlertDialog.Cancel>
+            <AlertDialog.Action asChild>
+              <button onClick={onConfirm} className={`rounded-lg px-3 py-1.5 text-sm font-medium text-white ${danger ? "bg-red-600 hover:bg-red-700" : "bg-zinc-900 hover:bg-zinc-800"}`}>{confirmLabel}</button>
+            </AlertDialog.Action>
           </div>
-        </li>
-      ))}
-    </ol>
+        </AlertDialog.Content>
+      </AlertDialog.Portal>
+    </AlertDialog.Root>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Items / Pricing / Customer sections                                */
+/* ------------------------------------------------------------------ */
+
+function ItemsSection({ order }) {
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Items to pack ({order.items?.length || 0})</h3>
+      <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
+        {(order.items || []).map((item, idx) => {
+          const product = item.product;
+          const primaryImg = product?.images?.find((i) => i.isPrimary)?.url || product?.images?.[0]?.url;
+          const img = item.image || primaryImg || "/images/placeholder.jpg";
+          return (
+            <div key={idx} className="flex items-center gap-3 p-3">
+              <img src={img} alt={item.name} className="h-12 w-12 rounded-lg object-cover bg-zinc-100 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-zinc-900 truncate">{item.name}</p>
+                <p className="text-xs text-zinc-400">Qty: {item.quantity}{item.selectedSize ? ` / Size: ${item.selectedSize}` : ""}</p>
+              </div>
+              <span className="text-sm font-medium text-zinc-900 shrink-0">&#8377;{(item.price * item.quantity).toLocaleString("en-IN")}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PricingSection({ order }) {
+  const [open, setOpen] = useState(false);
+  const p = order.pricing || {};
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Payment</h3>
+      <div className="rounded-lg border border-zinc-200">
+        <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between px-4 py-3">
+          <span className="text-sm font-semibold text-zinc-900">Total</span>
+          <span className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-zinc-900">&#8377;{p.total?.toLocaleString("en-IN") || "0"}</span>
+            <ChevronDownIcon className={`h-4 w-4 text-zinc-400 transition-transform ${open ? "rotate-180" : ""}`} />
+          </span>
+        </button>
+        {open && (
+          <div className="border-t border-zinc-100 px-4 py-3 space-y-2">
+            <Row label="Subtotal" value={p.subtotal} />
+            <Row label="Shipping" value={p.shippingCost} />
+            {p.giftWrapCost > 0 && <Row label="Gift wrap" value={p.giftWrapCost} />}
+            {(p.couponDiscount > 0 || p.tierDiscount > 0 || p.bundleDiscountTotal > 0 || p.loyaltyDiscount > 0 || p.specialCouponDiscountTotal > 0) && (
+              <Row label="Discounts" value={-((p.couponDiscount||0)+(p.tierDiscount||0)+(p.bundleDiscountTotal||0)+(p.loyaltyDiscount||0)+(p.specialCouponDiscountTotal||0))} positiveGreen />
+            )}
+            <div className="flex justify-between text-sm font-semibold pt-2 border-t border-zinc-100">
+              <span className="text-zinc-900">Total</span>
+              <span className="text-zinc-900">&#8377;{p.total?.toLocaleString("en-IN") || "0"}</span>
+            </div>
+            <p className="text-[11px] text-zinc-400 pt-1">{order.payment?.method?.toUpperCase()} · {order.payment?.status}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value, positiveGreen }) {
+  const v = Number(value || 0);
+  return (
+    <div className="flex justify-between text-sm">
+      <span className="text-zinc-500">{label}</span>
+      <span className={positiveGreen && v < 0 ? "text-green-600" : "text-zinc-700"}>
+        {v < 0 ? "-" : ""}&#8377;{Math.abs(v).toLocaleString("en-IN")}
+      </span>
+    </div>
+  );
+}
+
+function CustomerDeliverySection({ order }) {
+  const a = order.shippingAddress || {};
+  const user = order.user;
+  const accountName = user?.fullName || order.contactEmail || a.fullName;
+  const accountEmail = user?.email || order.contactEmail;
+  const accountPhone = user?.phone ? `${user.countryCode || "+91"} ${user.phone}` : order.contactPhone;
+  const recipPhone = a.phone ? `${a.countryCode || "+91"} ${a.phone}` : "";
+  // Same person? compare recipient name + phone digits with account.
+  const digits = (x) => (x || "").replace(/\D/g, "").slice(-10);
+  const sameAsAccount =
+    a.fullName && accountName && a.fullName.trim().toLowerCase() === String(accountName).trim().toLowerCase() &&
+    (!a.phone || !user?.phone || digits(a.phone) === digits(user.phone));
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Customer &amp; delivery</h3>
+      <div className="rounded-lg border border-zinc-200 p-4 space-y-3">
+        {/* Account */}
+        <div>
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-[10px] font-medium text-zinc-400 uppercase">Account</span>
+            <OwnerBadge owner="customer" />
+          </div>
+          <p className="text-sm font-medium text-zinc-900">{accountName || "Guest"}</p>
+          <p className="text-sm text-zinc-500">{accountEmail || "—"}</p>
+          <p className="text-sm text-zinc-500">{accountPhone || "—"}</p>
+        </div>
+
+        {/* Deliver to */}
+        <div className="pt-2 border-t border-zinc-100">
+          <span className="text-[10px] font-medium text-zinc-400 uppercase">Deliver to</span>
+          {sameAsAccount && <span className="ml-2 text-[10px] text-zinc-400">(same as account)</span>}
+          {!sameAsAccount && <p className="text-sm font-medium text-zinc-900 mt-0.5">{a.fullName}</p>}
+          <p className="text-sm text-zinc-500 mt-0.5">{a.address1}</p>
+          {a.address2 && <p className="text-sm text-zinc-500">{a.address2}</p>}
+          <p className="text-sm text-zinc-500">{a.city}, {a.state} {a.pincode}</p>
+          {!sameAsAccount && recipPhone && <p className="text-sm text-zinc-400 mt-0.5">{recipPhone}</p>}
+        </div>
+
+        {/* Billing only if different */}
+        {order.billingSameAsShipping === false && order.billingAddress?.address1 && (
+          <div className="pt-2 border-t border-zinc-100">
+            <span className="text-[10px] font-medium text-zinc-400 uppercase">Billing</span>
+            <p className="text-sm text-zinc-500 mt-0.5">{order.billingAddress.fullName}</p>
+            <p className="text-sm text-zinc-500">{order.billingAddress.address1}</p>
+            <p className="text-sm text-zinc-500">{order.billingAddress.city}, {order.billingAddress.state} {order.billingAddress.pincode}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Activity feed (merged timeline + notes, attributed)                */
+/* ------------------------------------------------------------------ */
+
+function ActivityFeed({ order, onUpdated }) {
+  const { showToast } = useToast();
+  const [noteText, setNoteText] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const addNote = async () => {
+    if (!noteText.trim()) return;
+    setAdding(true);
+    try {
+      const data = await adminOrderApi.addNote(order._id, noteText.trim());
+      onUpdated(data.order || data);
+      setNoteText("");
+      showToast("Note added", "success");
+    } catch {
+      showToast("Failed to add note", "error");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const entries = [...(order.adminNotes || [])].reverse();
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Add a note..." rows={3}
+          className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 resize-none" />
+        <button onClick={addNote} disabled={!noteText.trim() || adding} className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50">
+          {adding ? <ReloadIcon className="h-3.5 w-3.5 animate-spin" /> : <ChatBubbleIcon className="h-3.5 w-3.5" />} Add Note
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {entries.length === 0 ? (
+          <p className="text-sm text-zinc-400 text-center py-8">No activity yet</p>
+        ) : (
+          entries.map((e, idx) => {
+            const owner = ACTOR_OWNER[e.actor] || "you";
+            const o = OWNERS[owner];
+            const Icon = o.Icon;
+            return (
+              <div key={idx} className="flex gap-2.5 rounded-lg border border-zinc-200 p-3">
+                <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${o.bg} ${o.text}`}>
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-zinc-700">{e.note}</p>
+                  <p className="text-xs text-zinc-400">
+                    {o.label}
+                    {e.isOverride && <span className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">override</span>}
+                    {" · "}{formatDateTime(e.addedAt)}
+                  </p>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
   );
 }

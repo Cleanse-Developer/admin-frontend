@@ -6,11 +6,15 @@ import { adminSettingsApi, adminShiprocketApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
 
 const DEFAULTS = {
-  DISCOUNT_TIERS: [
-    { threshold: 3500, percent: 15, label: "15% OFF" },
-    { threshold: 2000, percent: 10, label: "10% OFF" },
-    { threshold: 500, percent: 5, label: "5% OFF" },
-  ],
+  discount_tier_config: {
+    enabled: true,
+    tiers: [
+      { threshold: 3500, type: "percent", percent: 15, label: "15% OFF" },
+      { threshold: 2000, type: "percent", percent: 10, label: "10% OFF" },
+      { threshold: 1200, type: "free_shipping", label: "Free Shipping" },
+      { threshold: 500, type: "percent", percent: 5, label: "5% OFF" },
+    ],
+  },
   SHIPPING: { FREE_THRESHOLD: 1200, STANDARD_RATE: 99 },
   GIFT_WRAP_COST: 99,
   LOYALTY_RATE: 0.1,
@@ -45,7 +49,12 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [discountTiers, setDiscountTiers] = useState(DEFAULTS.DISCOUNT_TIERS);
+  const [discountTiers, setDiscountTiers] = useState(
+    DEFAULTS.discount_tier_config.tiers
+  );
+  const [discountTiersEnabled, setDiscountTiersEnabled] = useState(
+    DEFAULTS.discount_tier_config.enabled
+  );
   const [shipping, setShipping] = useState(DEFAULTS.SHIPPING);
   const [giftWrapCost, setGiftWrapCost] = useState(DEFAULTS.GIFT_WRAP_COST);
   const [loyaltyRate, setLoyaltyRate] = useState(DEFAULTS.LOYALTY_RATE);
@@ -58,11 +67,15 @@ export default function SettingsPage() {
     try {
       const data = await adminSettingsApi.get();
       if (data) {
+        const tierCfg = data.discount_tier_config;
+        const tiers =
+          tierCfg && Array.isArray(tierCfg.tiers) && tierCfg.tiers.length > 0
+            ? tierCfg.tiers
+            : DEFAULTS.discount_tier_config.tiers;
         setDiscountTiers(
-          data.DISCOUNT_TIERS && data.DISCOUNT_TIERS.length > 0
-            ? [...data.DISCOUNT_TIERS].sort((a, b) => b.threshold - a.threshold)
-            : DEFAULTS.DISCOUNT_TIERS
+          [...tiers].sort((a, b) => Number(b.threshold) - Number(a.threshold))
         );
+        setDiscountTiersEnabled(tierCfg ? tierCfg.enabled !== false : true);
         setShipping(data.SHIPPING ?? DEFAULTS.SHIPPING);
         setGiftWrapCost(data.GIFT_WRAP_COST ?? DEFAULTS.GIFT_WRAP_COST);
         setLoyaltyRate(data.LOYALTY_RATE ?? DEFAULTS.LOYALTY_RATE);
@@ -82,17 +95,55 @@ export default function SettingsPage() {
   }, [fetchSettings]);
 
   const handleSave = async () => {
+    // Validate + normalize cart tiers before saving
+    const cleanTiers = discountTiers.map((t) => ({
+      threshold: Number(t.threshold),
+      type: t.type === "free_shipping" ? "free_shipping" : "percent",
+      percent: Number(t.percent),
+      label: (t.label || "").trim(),
+    }));
+    for (const t of cleanTiers) {
+      if (!(t.threshold > 0)) {
+        showToast("Each tier needs a threshold greater than 0", "error");
+        return;
+      }
+      if (!t.label) {
+        showToast("Each tier needs a label", "error");
+        return;
+      }
+      if (t.type === "percent" && !(t.percent > 0 && t.percent <= 100)) {
+        showToast("Percent tiers need a discount between 1 and 100", "error");
+        return;
+      }
+    }
+    if (cleanTiers.filter((t) => t.type === "free_shipping").length > 1) {
+      showToast("Only one Free Shipping tier is allowed", "error");
+      return;
+    }
+
     setSaving(true);
     try {
-      const sortedTiers = [...discountTiers].sort(
-        (a, b) => Number(b.threshold) - Number(a.threshold)
+      const sortedTiers = [...cleanTiers].sort(
+        (a, b) => b.threshold - a.threshold
       );
       await adminSettingsApi.update({
-        DISCOUNT_TIERS: sortedTiers.map((t) => ({
-          threshold: Number(t.threshold),
-          percent: Number(t.percent),
-          label: t.label,
-        })),
+        discount_tier_config: {
+          enabled: !!discountTiersEnabled,
+          tiers: sortedTiers.map((t) =>
+            t.type === "free_shipping"
+              ? {
+                  threshold: t.threshold,
+                  type: "free_shipping",
+                  label: t.label,
+                }
+              : {
+                  threshold: t.threshold,
+                  type: "percent",
+                  percent: t.percent,
+                  label: t.label,
+                }
+          ),
+        },
         SHIPPING: {
           FREE_THRESHOLD: Number(shipping.FREE_THRESHOLD),
           STANDARD_RATE: Number(shipping.STANDARD_RATE),
@@ -137,7 +188,10 @@ export default function SettingsPage() {
   };
 
   const addTier = () => {
-    setDiscountTiers((prev) => [...prev, { threshold: 0, percent: 0, label: "" }]);
+    setDiscountTiers((prev) => [
+      ...prev,
+      { threshold: 0, type: "percent", percent: 0, label: "" },
+    ]);
   };
 
   const removeTier = (index) => {
@@ -173,31 +227,51 @@ export default function SettingsPage() {
       <div className="space-y-6">
         {/* Section 1: Cart Tier Discounts */}
         <div className="rounded-xl border border-zinc-200 bg-white p-5">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-1">
             <h2 className="text-base font-semibold text-zinc-900">
               Cart Tier Discounts
             </h2>
-            <button
-              type="button"
-              onClick={addTier}
-              className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
-            >
-              <PlusIcon className="h-3.5 w-3.5" />
-              Add Tier
-            </button>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={discountTiersEnabled}
+                  onChange={(e) => setDiscountTiersEnabled(e.target.checked)}
+                />
+                Enabled
+              </label>
+              <button
+                type="button"
+                onClick={addTier}
+                className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+              >
+                <PlusIcon className="h-3.5 w-3.5" />
+                Add Tier
+              </button>
+            </div>
           </div>
+          <p className="text-sm text-zinc-500 mb-4">
+            {discountTiersEnabled
+              ? "Spend-based rewards shown as the cart progress bar. Use one Free Shipping tier to set the free-shipping threshold."
+              : "Disabled — no tier discounts apply and the cart progress bar is hidden."}
+          </p>
 
           {discountTiers.length === 0 ? (
             <p className="text-sm text-zinc-400">
               No discount tiers configured. Click "Add Tier" to create one.
             </p>
           ) : (
-            <div className="space-y-3">
+            <div
+              className={`space-y-3 ${
+                discountTiersEnabled ? "" : "opacity-60"
+              }`}
+            >
               {/* Column headers */}
-              <div className="grid grid-cols-[1fr_1fr_1fr_40px] gap-3">
+              <div className="grid grid-cols-[1fr_1.1fr_1fr_1.2fr_40px] gap-3">
                 <label className="text-xs font-medium text-zinc-500">
                   Threshold (&#8377;)
                 </label>
+                <label className="text-xs font-medium text-zinc-500">Type</label>
                 <label className="text-xs font-medium text-zinc-500">
                   Discount (%)
                 </label>
@@ -205,45 +279,61 @@ export default function SettingsPage() {
                 <span />
               </div>
 
-              {discountTiers.map((tier, index) => (
-                <div
-                  key={index}
-                  className="grid grid-cols-[1fr_1fr_1fr_40px] gap-3 items-center"
-                >
-                  <input
-                    type="number"
-                    min="0"
-                    value={tier.threshold}
-                    onChange={(e) => updateTier(index, "threshold", e.target.value)}
-                    placeholder="e.g. 3500"
-                    className={inputClass}
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={tier.percent}
-                    onChange={(e) => updateTier(index, "percent", e.target.value)}
-                    placeholder="e.g. 15"
-                    className={inputClass}
-                  />
-                  <input
-                    type="text"
-                    value={tier.label}
-                    onChange={(e) => updateTier(index, "label", e.target.value)}
-                    placeholder="e.g. 15% OFF"
-                    className={inputClass}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeTier(index)}
-                    className="flex items-center justify-center rounded-lg p-2 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                    title="Remove tier"
+              {discountTiers.map((tier, index) => {
+                const isFreeShipping = tier.type === "free_shipping";
+                return (
+                  <div
+                    key={index}
+                    className="grid grid-cols-[1fr_1.1fr_1fr_1.2fr_40px] gap-3 items-center"
                   >
-                    <TrashIcon className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
+                    <input
+                      type="number"
+                      min="0"
+                      value={tier.threshold}
+                      onChange={(e) =>
+                        updateTier(index, "threshold", e.target.value)
+                      }
+                      placeholder="e.g. 3500"
+                      className={inputClass}
+                    />
+                    <select
+                      value={isFreeShipping ? "free_shipping" : "percent"}
+                      onChange={(e) => updateTier(index, "type", e.target.value)}
+                      className={inputClass}
+                    >
+                      <option value="percent">Percent off</option>
+                      <option value="free_shipping">Free shipping</option>
+                    </select>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={isFreeShipping ? "" : tier.percent ?? ""}
+                      onChange={(e) =>
+                        updateTier(index, "percent", e.target.value)
+                      }
+                      disabled={isFreeShipping}
+                      placeholder={isFreeShipping ? "—" : "e.g. 15"}
+                      className={`${inputClass} disabled:bg-zinc-50 disabled:text-zinc-300`}
+                    />
+                    <input
+                      type="text"
+                      value={tier.label}
+                      onChange={(e) => updateTier(index, "label", e.target.value)}
+                      placeholder={isFreeShipping ? "e.g. Free Shipping" : "e.g. 15% OFF"}
+                      className={inputClass}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeTier(index)}
+                      className="flex items-center justify-center rounded-lg p-2 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                      title="Remove tier"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -251,44 +341,29 @@ export default function SettingsPage() {
         {/* Section 2: Shipping */}
         <div className="rounded-xl border border-zinc-200 bg-white p-5">
           <h2 className="text-base font-semibold text-zinc-900 mb-4">Shipping</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-zinc-500 mb-1.5">
-                Free Shipping Threshold (&#8377;)
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={shipping.FREE_THRESHOLD}
-                onChange={(e) =>
-                  setShipping((prev) => ({
-                    ...prev,
-                    FREE_THRESHOLD: e.target.value,
-                  }))
-                }
-                placeholder="e.g. 1200"
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-zinc-500 mb-1.5">
-                Standard Shipping Rate (&#8377;)
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={shipping.STANDARD_RATE}
-                onChange={(e) =>
-                  setShipping((prev) => ({
-                    ...prev,
-                    STANDARD_RATE: e.target.value,
-                  }))
-                }
-                placeholder="e.g. 99"
-                className={inputClass}
-              />
-            </div>
+          <div className="max-w-xs">
+            <label className="block text-xs font-medium text-zinc-500 mb-1.5">
+              Standard Shipping Rate (&#8377;)
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={shipping.STANDARD_RATE}
+              onChange={(e) =>
+                setShipping((prev) => ({
+                  ...prev,
+                  STANDARD_RATE: e.target.value,
+                }))
+              }
+              placeholder="e.g. 99"
+              className={inputClass}
+            />
           </div>
+          <p className="mt-2 text-xs text-zinc-400">
+            The free-shipping threshold is set as a Free Shipping tier under Cart
+            Tier Discounts above. Per-region rates/thresholds are managed in
+            Shipping Zones.
+          </p>
         </div>
 
         {/* Section 3: Gift Wrap */}
@@ -624,16 +699,22 @@ function ShiprocketSettings({ inputClass }) {
   const [svcResult, setSvcResult] = useState(null);
   const [svcLoading, setSvcLoading] = useState(false);
 
+  // Operational config (pickup, warehouse, courier, NDR, package, alert email)
+  const [cfg, setCfg] = useState(null);
+  const [savingCfg, setSavingCfg] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [w, p] = await Promise.all([
+      const [w, p, c] = await Promise.all([
         adminShiprocketApi.wallet().catch(() => null),
         adminShiprocketApi.listPickup().catch(() => null),
+        adminShiprocketApi.getConfig().catch(() => null),
       ]);
       setWallet(w?.balance ?? null);
       const list = p?.pickup?.shipping_address || p?.pickup || [];
       setPickup(Array.isArray(list) ? list : []);
+      if (c?.config) setCfg(c.config);
     } catch {
       showToast("Failed to load Shiprocket data", "error");
     } finally {
@@ -661,6 +742,41 @@ function ShiprocketSettings({ inputClass }) {
       showToast(err?.response?.data?.message || "Failed to add pickup", "error");
     } finally {
       setAdding(false);
+    }
+  };
+
+  // Pick a registered pickup location → auto-fill pincode + warehouse fields.
+  const selectPickup = (nickname) => {
+    const rec = pickup.find((p) => p.pickup_location === nickname);
+    setCfg((c) => ({
+      ...c,
+      pickupLocation: nickname,
+      ...(rec
+        ? {
+            pickupPincode: rec.pin_code || c.pickupPincode,
+            warehouse: {
+              ...c.warehouse,
+              name: rec.name || c.warehouse?.name || "",
+              address: rec.address || c.warehouse?.address || "",
+              city: rec.city || c.warehouse?.city || "",
+              state: rec.state || c.warehouse?.state || "",
+              phone: rec.phone || c.warehouse?.phone || "",
+            },
+          }
+        : {}),
+    }));
+  };
+
+  const saveConfig = async () => {
+    setSavingCfg(true);
+    try {
+      const data = await adminShiprocketApi.setConfig(cfg);
+      if (data?.config) setCfg(data.config);
+      showToast("Shipping configuration saved", "success");
+    } catch (err) {
+      showToast(err?.response?.data?.message || "Failed to save config", "error");
+    } finally {
+      setSavingCfg(false);
     }
   };
 
@@ -703,6 +819,134 @@ function ShiprocketSettings({ inputClass }) {
           {wallet === null ? "—" : `₹${Number(wallet).toLocaleString("en-IN")}`}
         </span>
       </div>
+
+      {/* Operational configuration */}
+      {cfg && (
+        <div className="space-y-3">
+          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Configuration</h3>
+          <div className="rounded-lg border border-zinc-200 p-4 space-y-4">
+            {/* Pickup */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 mb-1">Default pickup location</label>
+                <select
+                  value={cfg.pickupLocation || ""}
+                  onChange={(e) => selectPickup(e.target.value)}
+                  className={inputClass}
+                >
+                  {!pickup.some((p) => p.pickup_location === cfg.pickupLocation) && (
+                    <option value={cfg.pickupLocation || ""}>{cfg.pickupLocation || "— select —"}</option>
+                  )}
+                  {pickup.map((p) => (
+                    <option key={p.pickup_location} value={p.pickup_location}>
+                      {p.pickup_location} ({p.pin_code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 mb-1">Pickup pincode</label>
+                <input
+                  value={cfg.pickupPincode || ""}
+                  onChange={(e) => setCfg({ ...cfg, pickupPincode: e.target.value })}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+
+            {/* Warehouse (return destination) */}
+            <div>
+              <p className="text-xs font-medium text-zinc-500 mb-2">Warehouse address (where customer returns are sent back)</p>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  ["name", "Name"],
+                  ["phone", "Phone"],
+                  ["address", "Address"],
+                  ["city", "City"],
+                  ["state", "State"],
+                ].map(([k, label]) => (
+                  <div key={k} className={k === "address" ? "col-span-2" : ""}>
+                    <label className="block text-xs font-medium text-zinc-500 mb-1">{label}</label>
+                    <input
+                      value={cfg.warehouse?.[k] || ""}
+                      onChange={(e) =>
+                        setCfg({ ...cfg, warehouse: { ...cfg.warehouse, [k]: e.target.value } })
+                      }
+                      className={inputClass}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Courier + NDR + alert email */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 mb-1">Default courier ID (blank = auto)</label>
+                <input
+                  value={cfg.defaultCourierId || ""}
+                  onChange={(e) => setCfg({ ...cfg, defaultCourierId: e.target.value })}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 mb-1">NDR auto re-attempts before RTO</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={cfg.ndrMaxReattempts ?? 2}
+                  onChange={(e) => setCfg({ ...cfg, ndrMaxReattempts: e.target.value })}
+                  className={inputClass}
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-zinc-500 mb-1">Alert email (lost/damaged shipments)</label>
+                <input
+                  value={cfg.adminNotifyEmail || ""}
+                  onChange={(e) => setCfg({ ...cfg, adminNotifyEmail: e.target.value })}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+
+            {/* Package defaults */}
+            <div>
+              <p className="text-xs font-medium text-zinc-500 mb-2">Default package size (cm) / weight (kg)</p>
+              <div className="grid grid-cols-4 gap-3">
+                {[
+                  ["length", "Length"],
+                  ["breadth", "Breadth"],
+                  ["height", "Height"],
+                  ["weight", "Weight"],
+                ].map(([k, label]) => (
+                  <div key={k}>
+                    <label className="block text-xs font-medium text-zinc-500 mb-1">{label}</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={cfg.pkg?.[k] ?? ""}
+                      onChange={(e) => setCfg({ ...cfg, pkg: { ...cfg.pkg, [k]: e.target.value } })}
+                      className={inputClass}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={saveConfig}
+                disabled={savingCfg}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {savingCfg ? <ReloadIcon className="h-3.5 w-3.5 animate-spin" /> : null}
+                Save configuration
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pickup locations */}
       <div className="space-y-2">

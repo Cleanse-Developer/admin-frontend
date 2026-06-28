@@ -7,6 +7,35 @@ import { adminCmsApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
 import CmsVariantSlots from "./cms-variant-slots";
 import MediaPicker from "@/components/media/media-picker";
+import { getCroppedBlob } from "@/lib/crop-image";
+
+function RotateLeftIcon({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M3 7v5h5M3.5 11a8 8 0 1 1 1.2 5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function RotateRightIcon({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M21 7v5h-5M20.5 11a8 8 0 1 0-1.2 5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 const ALLOWED_IMAGE_TYPES = [
   "image/jpeg",
@@ -14,36 +43,10 @@ const ALLOWED_IMAGE_TYPES = [
   "image/png",
   "image/webp",
 ];
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_IMAGE_SIZE = 100 * 1024 * 1024; // 100MB
 
 const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
-const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
-
-function getCroppedBlob(imageSrc, pixelCrop, mimeType = "image/jpeg") {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = pixelCrop.width;
-      canvas.height = pixelCrop.height;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(
-        img,
-        pixelCrop.x,
-        pixelCrop.y,
-        pixelCrop.width,
-        pixelCrop.height,
-        0,
-        0,
-        pixelCrop.width,
-        pixelCrop.height
-      );
-      canvas.toBlob((blob) => resolve(blob), mimeType, 0.92);
-    };
-    img.src = imageSrc;
-  });
-}
+const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
 
 // Human-readable ratio label from a decimal aspect ratio
 function ratioLabel(ar) {
@@ -83,6 +86,7 @@ export default function CmsImageUpload({
   const [cropFile, setCropFile] = useState(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
 
   const onCropComplete = useCallback((_, croppedPixels) => {
@@ -107,7 +111,7 @@ export default function CmsImageUpload({
       return false;
     }
     if (file.size > maxSize) {
-      showToast(`File too large. Max ${isVideo ? "50MB" : "5MB"}`, "error");
+      showToast("File too large. Max 100MB", "error");
       return false;
     }
     return true;
@@ -124,6 +128,7 @@ export default function CmsImageUpload({
         setCropFile(file);
         setCrop({ x: 0, y: 0 });
         setZoom(1);
+        setRotation(0);
       };
       reader.readAsDataURL(file);
       return;
@@ -158,7 +163,12 @@ export default function CmsImageUpload({
   async function handleCropConfirm() {
     if (!cropSrc || !croppedAreaPixels) return;
     const mimeType = cropFile?.type || "image/jpeg";
-    const blob = await getCroppedBlob(cropSrc, croppedAreaPixels, mimeType);
+    const blob = await getCroppedBlob(
+      cropSrc,
+      croppedAreaPixels,
+      rotation,
+      mimeType
+    );
     setCropSrc(null);
     uploadFile(blob, cropFile);
     setCropFile(null);
@@ -167,6 +177,7 @@ export default function CmsImageUpload({
   function handleCropCancel() {
     setCropSrc(null);
     setCropFile(null);
+    setRotation(0);
   }
 
   function handleDrop(e) {
@@ -249,8 +260,8 @@ export default function CmsImageUpload({
             </p>
             <p className="mt-0.5 text-xs text-zinc-400">
               {isVideo
-                ? "MP4, WebM, MOV. Max 50MB"
-                : "JPEG, PNG, WebP. Max 5MB"}
+                ? "MP4, WebM, MOV. Max 100MB"
+                : "JPEG, PNG, WebP. Max 100MB"}
             </p>
             <input
               ref={inputRef}
@@ -332,13 +343,15 @@ export default function CmsImageUpload({
                 image={cropSrc}
                 crop={crop}
                 zoom={zoom}
+                rotation={rotation}
                 aspect={aspectRatio}
                 onCropChange={setCrop}
                 onZoomChange={setZoom}
+                onRotationChange={setRotation}
                 onCropComplete={onCropComplete}
               />
             </div>
-            <div className="px-5 py-2">
+            <div className="flex flex-col gap-2 px-5 py-2">
               <label className="flex items-center gap-3 text-xs text-zinc-500">
                 Zoom
                 <input
@@ -351,6 +364,34 @@ export default function CmsImageUpload({
                   className="flex-1 accent-zinc-900"
                 />
               </label>
+              <div className="flex items-center gap-3 text-xs text-zinc-500">
+                Rotate
+                <button
+                  type="button"
+                  onClick={() => setRotation((r) => r - 90)}
+                  title="Rotate left 90°"
+                  className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                >
+                  <RotateLeftIcon className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRotation((r) => r + 90)}
+                  title="Rotate right 90°"
+                  className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                >
+                  <RotateRightIcon className="h-4 w-4" />
+                </button>
+                <input
+                  type="range"
+                  min={-180}
+                  max={180}
+                  step={1}
+                  value={rotation}
+                  onChange={(e) => setRotation(Number(e.target.value))}
+                  className="flex-1 accent-zinc-900"
+                />
+              </div>
             </div>
             <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3">
               <button

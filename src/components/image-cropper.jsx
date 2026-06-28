@@ -5,40 +5,34 @@ import Cropper from "react-easy-crop";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
 import { Cross1Icon } from "@radix-ui/react-icons";
+import { getCroppedBlob } from "@/lib/crop-image";
 
-function getCroppedBlob(imageSrc, pixelCrop) {
-  return new Promise((resolve, reject) => {
-    const img = document.createElement("img");
-    img.addEventListener("load", () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = pixelCrop.width;
-      canvas.height = pixelCrop.height;
-      const ctx = canvas.getContext("2d");
+function RotateLeftIcon({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M3 7v5h5M3.5 11a8 8 0 1 1 1.2 5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
-      ctx.drawImage(
-        img,
-        pixelCrop.x,
-        pixelCrop.y,
-        pixelCrop.width,
-        pixelCrop.height,
-        0,
-        0,
-        pixelCrop.width,
-        pixelCrop.height
-      );
-
-      canvas.toBlob(
-        (blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error("Canvas toBlob failed"));
-        },
-        "image/jpeg",
-        0.92
-      );
-    });
-    img.addEventListener("error", () => reject(new Error("Image load failed")));
-    img.src = imageSrc;
-  });
+function RotateRightIcon({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M21 7v5h-5M20.5 11a8 8 0 1 0-1.2 5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 export default function ImageCropper({
@@ -50,6 +44,7 @@ export default function ImageCropper({
 }) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
   const [isCropping, setIsCropping] = useState(false);
   const croppedPixelsRef = useRef(null);
   const [imageSrc] = useState(() => URL.createObjectURL(file));
@@ -76,7 +71,7 @@ export default function ImageCropper({
     if (!pixels) return;
     setIsCropping(true);
     try {
-      const blob = await getCroppedBlob(imageSrc, pixels);
+      const blob = await getCroppedBlob(imageSrc, pixels, rotation);
       const name = file.name.replace(/\.[^.]+$/, ".jpg");
       const croppedFile = new File([blob], name, { type: "image/jpeg" });
       URL.revokeObjectURL(imageSrc);
@@ -129,9 +124,11 @@ export default function ImageCropper({
               image={imageSrc}
               crop={crop}
               zoom={zoom}
+              rotation={rotation}
               aspect={effectiveAspect}
               onCropChange={setCrop}
               onZoomChange={setZoom}
+              onRotationChange={setRotation}
               onCropComplete={onCropComplete}
               showGrid={false}
               style={{
@@ -145,17 +142,47 @@ export default function ImageCropper({
 
           {/* Footer */}
           <div className="flex items-center justify-between bg-zinc-900 px-4 py-3">
-            <div className="flex items-center gap-3">
-              <label className="text-xs text-zinc-400">Zoom</label>
-              <input
-                type="range"
-                min={1}
-                max={10}
-                step={0.05}
-                value={zoom}
-                onChange={(e) => setZoom(Number(e.target.value))}
-                className="h-1 w-32 cursor-pointer accent-white"
-              />
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-zinc-400">Zoom</label>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  step={0.05}
+                  value={zoom}
+                  onChange={(e) => setZoom(Number(e.target.value))}
+                  className="h-1 w-32 cursor-pointer accent-white"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-zinc-400">Rotate</label>
+                <button
+                  type="button"
+                  onClick={() => setRotation((r) => r - 90)}
+                  title="Rotate left 90°"
+                  className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                >
+                  <RotateLeftIcon className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRotation((r) => r + 90)}
+                  title="Rotate right 90°"
+                  className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                >
+                  <RotateRightIcon className="h-4 w-4" />
+                </button>
+                <input
+                  type="range"
+                  min={-180}
+                  max={180}
+                  step={1}
+                  value={rotation}
+                  onChange={(e) => setRotation(Number(e.target.value))}
+                  className="h-1 w-32 cursor-pointer accent-white"
+                />
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <button

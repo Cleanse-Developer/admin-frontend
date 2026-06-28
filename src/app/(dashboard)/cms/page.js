@@ -5,18 +5,30 @@ import * as Tabs from "@radix-ui/react-tabs";
 import { adminCmsApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
 
+import CmsPromoBarEditor from "@/components/cms/cms-promo-bar-editor";
 import CmsHeroEditor from "@/components/cms/cms-hero-editor";
 import CmsFormulaEditor from "@/components/cms/cms-formula-editor";
+import CmsFeaturedProductsEditor from "@/components/cms/cms-featured-products-editor";
 import CmsMarqueeEditor from "@/components/cms/cms-marquee-editor";
 import CmsBentoEditor from "@/components/cms/cms-bento-editor";
 import CmsCtaEditor from "@/components/cms/cms-cta-editor";
 import CmsPeelRevealEditor from "@/components/cms/cms-peel-reveal-editor";
 import CmsHeaderEditor from "@/components/cms/cms-header-editor";
 import CmsFooterEditor from "@/components/cms/cms-footer-editor";
+import CmsLegalEditor from "@/components/cms/cms-legal-editor";
 
 const SECTIONS = [
+  { key: "promoBanner", label: "Promo Bar", Component: CmsPromoBarEditor },
   { key: "cmsHero", label: "Hero", Component: CmsHeroEditor },
   { key: "cmsFormula", label: "Formula", Component: CmsFormulaEditor },
+  {
+    // Self-managed: loads + saves via its own product endpoints, not the shared
+    // CMS getSection/updateSection flow.
+    key: "featuredProducts",
+    label: "Featured Products",
+    Component: CmsFeaturedProductsEditor,
+    selfManaged: true,
+  },
   {
     key: "cmsMarquee",
     label: "Marquee & Reels",
@@ -31,6 +43,8 @@ const SECTIONS = [
   },
   { key: "cmsHeader", label: "Header", Component: CmsHeaderEditor },
   { key: "cmsFooter", label: "Footer", Component: CmsFooterEditor },
+  { key: "cmsTerms", label: "Terms of Service", Component: CmsLegalEditor },
+  { key: "cmsPrivacy", label: "Privacy Policy", Component: CmsLegalEditor },
 ];
 
 export default function CmsPage() {
@@ -44,6 +58,8 @@ export default function CmsPage() {
 
   // Load active tab's data when tab changes
   useEffect(() => {
+    // Self-managed tabs handle their own data fetching/saving.
+    if (SECTIONS.find((s) => s.key === activeTab)?.selfManaged) return;
     if (loadedKeysRef.current.has(activeTab)) return;
     loadedKeysRef.current.add(activeTab);
 
@@ -107,10 +123,13 @@ export default function CmsPage() {
           ))}
         </Tabs.List>
 
-        {SECTIONS.map(({ key, Component }) => (
+        {SECTIONS.map(({ key, Component, selfManaged }) => (
           <Tabs.Content key={key} value={key}>
             <div className="rounded-xl border border-zinc-200 bg-white p-5">
-              {loadingKeys[key] ? (
+              {selfManaged ? (
+                // Manages its own data + save button.
+                <Component />
+              ) : loadingKeys[key] ? (
                 <div className="py-12 text-center text-sm text-zinc-400">
                   Loading...
                 </div>
@@ -122,17 +141,19 @@ export default function CmsPage() {
               )}
             </div>
 
-            {/* Save button */}
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => handleSave(key)}
-                disabled={savingKey === key || loadingKeys[key]}
-                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50"
-              >
-                {savingKey === key ? "Saving..." : "Save Section"}
-              </button>
-            </div>
+            {/* Shared save button (self-managed tabs render their own) */}
+            {!selfManaged && (
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => handleSave(key)}
+                  disabled={savingKey === key || loadingKeys[key]}
+                  className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {savingKey === key ? "Saving..." : "Save Section"}
+                </button>
+              </div>
+            )}
           </Tabs.Content>
         ))}
       </Tabs.Root>

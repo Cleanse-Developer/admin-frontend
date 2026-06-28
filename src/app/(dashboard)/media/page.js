@@ -24,7 +24,6 @@ const TYPE_OPTIONS = [
 const PROVIDER_OPTIONS = [
   { value: "all", label: "All Sources" },
   { value: "s3", label: "AWS S3" },
-  { value: "cloudinary", label: "Cloudinary" },
 ];
 
 const SORT_OPTIONS = [

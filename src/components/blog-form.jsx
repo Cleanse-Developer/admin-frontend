@@ -369,7 +369,7 @@ export default function BlogForm({ initialData, onSubmit, isSubmitting }) {
       {/* Featured Image */}
       <div className="rounded-lg border border-zinc-200 bg-white p-6">
         <h2 className="text-base font-semibold text-zinc-900">Featured Image</h2>
-        <p className="mt-1 text-sm text-zinc-500">JPEG, PNG, or WebP, max 5MB.</p>
+        <p className="mt-1 text-sm text-zinc-500">JPEG, PNG, or WebP, max 100MB.</p>
         <div className="mt-4">
           <SingleImageUpload
             image={image}
@@ -519,7 +519,7 @@ function SingleImageUpload({ image, onChange, optimize, onOptimizeChange }) {
     if (!file) return;
     const allowed = ["image/jpeg", "image/png", "image/webp"];
     if (!allowed.includes(file.type)) return;
-    if (file.size > 5 * 1024 * 1024) return;
+    if (file.size > 100 * 1024 * 1024) return;
     onChange({ url: URL.createObjectURL(file), file, isNew: true });
   }
 

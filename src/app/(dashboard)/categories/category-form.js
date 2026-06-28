@@ -228,7 +228,7 @@ function BannerUpload({ value, onChange, aspect, title }) {
     if (!file) return;
     const allowed = ["image/jpeg", "image/png", "image/webp"];
     if (!allowed.includes(file.type)) return;
-    if (file.size > 5 * 1024 * 1024) return;
+    if (file.size > 100 * 1024 * 1024) return;
     setPendingFile(file);
   }
 

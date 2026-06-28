@@ -15,7 +15,7 @@ const ALLOWED = [
   "video/webm",
   "video/quicktime",
 ];
-const MAX = 50 * 1024 * 1024;
+const MAX = 100 * 1024 * 1024;
 
 // Upload-new-media modal. Calls onUploaded(mediaDoc) on success.
 export default function MediaUploader({ open, onOpenChange, onUploaded }) {
@@ -40,7 +40,7 @@ export default function MediaUploader({ open, onOpenChange, onUploaded }) {
       return;
     }
     if (f.size > MAX) {
-      showToast("File too large. Max 50MB", "error");
+      showToast("File too large. Max 100MB", "error");
       return;
     }
     setFile(f);
@@ -103,7 +103,7 @@ export default function MediaUploader({ open, onOpenChange, onUploaded }) {
                 <UploadIcon className="mb-2 h-6 w-6 text-zinc-400" />
                 <p className="text-sm text-zinc-500">Drop file or click to browse</p>
                 <p className="mt-1 text-xs text-zinc-400">
-                  JPEG, PNG, WebP, MP4, WebM, MOV. Max 50MB
+                  JPEG, PNG, WebP, MP4, WebM, MOV. Max 100MB
                 </p>
               </>
             )}

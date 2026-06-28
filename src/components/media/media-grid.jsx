@@ -1,7 +1,7 @@
 "use client";
 
 import { ImageIcon, VideoIcon } from "@radix-ui/react-icons";
-import { formatBytes, formatDate, isVideo } from "./media-utils";
+import { formatBytes, formatDate, formatDimensions, isVideo } from "./media-utils";
 
 // Presentational media renderer used by the Media page and the picker.
 // view: "grid" | "list". onSelect(item) fires on click.
@@ -17,6 +17,7 @@ export default function MediaGrid({ items, view = "grid", onSelect, selectedId }
               <th className="hidden px-3 py-2 font-medium sm:table-cell">Folder</th>
               <th className="hidden px-3 py-2 font-medium sm:table-cell">Type</th>
               <th className="hidden px-3 py-2 font-medium md:table-cell">Provider</th>
+              <th className="hidden px-3 py-2 font-medium md:table-cell">Dimensions</th>
               <th className="px-3 py-2 font-medium">Size</th>
               <th className="hidden px-3 py-2 font-medium lg:table-cell">Uploaded</th>
             </tr>
@@ -41,6 +42,9 @@ export default function MediaGrid({ items, view = "grid", onSelect, selectedId }
                 <td className="hidden px-3 py-2 text-zinc-500 sm:table-cell">{m.folder || "—"}</td>
                 <td className="hidden px-3 py-2 text-zinc-500 sm:table-cell">{m.resourceType}</td>
                 <td className="hidden px-3 py-2 text-zinc-500 md:table-cell">{m.provider}</td>
+                <td className="hidden px-3 py-2 text-zinc-500 md:table-cell">
+                  {formatDimensions(m) || "—"}
+                </td>
                 <td className="px-3 py-2 text-zinc-500">{formatBytes(m.bytes)}</td>
                 <td className="hidden px-3 py-2 text-zinc-500 lg:table-cell">
                   {formatDate(m.createdAt)}
@@ -73,8 +77,14 @@ export default function MediaGrid({ items, view = "grid", onSelect, selectedId }
               WebP
             </span>
           )}
-          <span className="absolute right-1 bottom-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white">
-            {m.provider === "s3" ? "S3" : "CLD"}
+          {/* Info footer: dimensions · size · provider */}
+          <span className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-linear-to-t from-black/75 to-transparent px-1.5 pt-4 pb-1 text-[10px] text-white">
+            <span className="truncate">
+              {[formatDimensions(m), formatBytes(m.bytes)].filter(Boolean).join(" · ")}
+            </span>
+            <span className="shrink-0 font-medium">
+              {m.provider === "s3" ? "S3" : "CLD"}
+            </span>
           </span>
         </button>
       ))}

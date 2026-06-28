@@ -11,6 +11,12 @@ const POSITION_OPTIONS = [
   { value: "right-bottom", label: "Right Bottom" },
 ];
 
+// Marquee now uses only 2 lines (Line 3 removed per request). Set back to 3
+// (or Infinity) to re-enable the third line in the admin editor. The storefront
+// already guards each line (marqueeLines[2] && ...), so existing line-3 data in
+// the DB stays intact and simply isn't shown — nothing breaks either way.
+const MAX_MARQUEE_LINES = 2;
+
 export default function CmsMarqueeEditor({ data, onChange }) {
   const update = (field, value) => onChange({ ...data, [field]: value });
 
@@ -37,7 +43,10 @@ export default function CmsMarqueeEditor({ data, onChange }) {
           Marquee Text Lines
         </h3>
         <div className="space-y-2">
-          {marqueeLines.map((line, i) => (
+          {/* Only render up to MAX_MARQUEE_LINES (Line 3 hidden per request).
+              Use slice so any extra line still stored in the DB is preserved,
+              just not editable here. Remove the slice to show all lines again. */}
+          {marqueeLines.slice(0, MAX_MARQUEE_LINES).map((line, i) => (
             <div key={i}>
               <label className="block text-xs font-medium text-zinc-500 mb-1">
                 Line {i + 1}
