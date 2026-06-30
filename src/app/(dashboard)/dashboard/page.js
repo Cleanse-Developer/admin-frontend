@@ -560,14 +560,14 @@ export default function DashboardPage() {
           }
         >
           <div className="-mx-5 max-h-[420px] overflow-auto px-5">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[560px] text-sm">
               <thead className="sticky top-0 bg-white">
                 <tr className="border-b border-zinc-100 text-left">
-                  <th className="py-2.5 pr-3 font-medium text-zinc-400">Order #</th>
+                  <th className="whitespace-nowrap py-2.5 pr-3 font-medium text-zinc-400">Order #</th>
                   <th className="py-2.5 pr-3 font-medium text-zinc-400">Customer</th>
-                  <th className="py-2.5 pr-3 font-medium text-zinc-400">Total</th>
+                  <th className="whitespace-nowrap py-2.5 pr-3 font-medium text-zinc-400">Total</th>
                   <th className="py-2.5 pr-3 font-medium text-zinc-400">Status</th>
-                  <th className="py-2.5 font-medium text-zinc-400">Date</th>
+                  <th className="whitespace-nowrap py-2.5 font-medium text-zinc-400">Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -583,7 +583,7 @@ export default function DashboardPage() {
                       key={order._id}
                       className="border-b border-zinc-50 transition-colors hover:bg-zinc-50/60"
                     >
-                      <td className="py-3 pr-3 font-medium text-zinc-900">
+                      <td className="whitespace-nowrap py-3 pr-3 font-medium text-zinc-900">
                         {order.orderNumber}
                       </td>
                       <td className="py-3 pr-3">
@@ -594,7 +594,7 @@ export default function DashboardPage() {
                           {order.user?.email || ""}
                         </div>
                       </td>
-                      <td className="py-3 pr-3 font-medium text-zinc-900">
+                      <td className="whitespace-nowrap py-3 pr-3 font-medium text-zinc-900">
                         {inr(order.pricing?.total)}
                       </td>
                       <td className="py-3 pr-3">
@@ -607,7 +607,7 @@ export default function DashboardPage() {
                           {order.status}
                         </span>
                       </td>
-                      <td className="py-3 text-zinc-500">
+                      <td className="whitespace-nowrap py-3 text-zinc-500">
                         {order.createdAt ? fmtDate(order.createdAt) : "—"}
                       </td>
                     </tr>
