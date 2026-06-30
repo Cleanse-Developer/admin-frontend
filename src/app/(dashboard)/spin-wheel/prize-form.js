@@ -175,10 +175,10 @@ export default function PrizeForm({ prize, onClose, onSuccess }) {
           )}
 
           {/* Colors */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <label className="block text-sm font-medium text-zinc-700 mb-1">Segment Color</label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <input
                   type="color"
                   value={form.color}
@@ -196,7 +196,7 @@ export default function PrizeForm({ prize, onClose, onSuccess }) {
             </div>
             <div>
               <label className="block text-sm font-medium text-zinc-700 mb-1">Text Color</label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <input
                   type="color"
                   value={form.textColor}

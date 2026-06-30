@@ -9,6 +9,9 @@ import {
   BREAKPOINTS,
   DEVICE_META,
   DeviceGlyph,
+  DEVICE_ASPECT,
+  ASPECT_PRESETS,
+  DEVICE_LABEL,
 } from "@/components/responsive-variants";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
@@ -82,7 +85,7 @@ export default function CmsVariantSlots({ sources = {}, onChange }) {
     <div className="flex flex-col gap-2">
       <p className="text-xs text-zinc-500">
         Optional. Each screen size falls back to the main image when empty.
-        Crop &amp; rotate before upload, or skip to use as-is.
+        Crop, rotate &amp; pick a ratio to match each device&apos;s layout, or skip to use as-is.
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {BREAKPOINTS.map(({ key, label }) => {
@@ -160,8 +163,9 @@ export default function CmsVariantSlots({ sources = {}, onChange }) {
       {cropTarget && (
         <ImageCropper
           file={cropTarget.file}
-          aspect={null}
-          title={`Crop ${cropTarget.key} variant (free)`}
+          aspect={DEVICE_ASPECT[cropTarget.key] ?? null}
+          aspectOptions={ASPECT_PRESETS}
+          title={`Crop ${DEVICE_LABEL[cropTarget.key] || cropTarget.key} image · ${DEVICE_META[cropTarget.key]?.hint || ""}`}
           onCropped={handleCropped}
           onCancel={handleSkip}
         />

@@ -22,6 +22,32 @@ export const DEVICE_META = {
   mobile: { hint: "≤ 480px", glyph: "w-2.5 h-4" },
 };
 
+// Default crop ratio matching each device's layout shape: wide on desktop,
+// squarer on tablet, tall on mobile. The cropper still lets the user switch.
+export const DEVICE_ASPECT = {
+  desktop: 16 / 9,
+  tablet: 4 / 3,
+  mobile: 9 / 16,
+};
+
+// Selectable ratios offered inside the cropper for every device variant.
+export const ASPECT_PRESETS = [
+  { label: "Free", value: null },
+  { label: "16:9", value: 16 / 9 },
+  { label: "4:3", value: 4 / 3 },
+  { label: "1:1", value: 1 },
+  { label: "4:5", value: 4 / 5 },
+  { label: "3:4", value: 3 / 4 },
+  { label: "9:16", value: 9 / 16 },
+];
+
+// Human label for a device key (used in cropper titles).
+export const DEVICE_LABEL = {
+  desktop: "Desktop",
+  tablet: "Tablet",
+  mobile: "Mobile",
+};
+
 export function DeviceGlyph({ deviceKey }) {
   if (deviceKey === "desktop") return <DesktopIcon className="h-4 w-4" />;
   const { glyph } = DEVICE_META[deviceKey];
@@ -92,6 +118,7 @@ export default function ResponsiveVariants({ value = {}, onChange }) {
     <div className="flex flex-col gap-2.5">
       <p className="text-xs text-zinc-500">
         Optional. Each screen size falls back to the main image when left empty.
+        Crop, rotate &amp; pick a ratio to match each device&apos;s layout, or skip to use as-is.
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {BREAKPOINTS.map(({ key, label }) => {
@@ -170,8 +197,9 @@ export default function ResponsiveVariants({ value = {}, onChange }) {
       {cropTarget && (
         <ImageCropper
           file={cropTarget.file}
-          aspect={null}
-          title={`Crop ${cropTarget.key} variant (free)`}
+          aspect={DEVICE_ASPECT[cropTarget.key] ?? null}
+          aspectOptions={ASPECT_PRESETS}
+          title={`Crop ${DEVICE_LABEL[cropTarget.key] || cropTarget.key} image · ${DEVICE_META[cropTarget.key]?.hint || ""}`}
           onCropped={handleCropped}
           onCancel={handleSkip}
         />

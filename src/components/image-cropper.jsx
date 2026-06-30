@@ -40,6 +40,10 @@ export default function ImageCropper({
   onCropped,
   onCancel,
   aspect = 3 / 4,
+  // Optional list of selectable aspect ratios: [{ label, value }] where value is a
+  // number, or null for "Free". When provided, an in-modal ratio picker is shown so
+  // each image can be cropped to match its target layout (e.g. wide desktop vs tall mobile).
+  aspectOptions = null,
   title = "Crop to portrait (3:4)",
 }) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -49,18 +53,19 @@ export default function ImageCropper({
   const croppedPixelsRef = useRef(null);
   const [imageSrc] = useState(() => URL.createObjectURL(file));
   const [naturalAspect, setNaturalAspect] = useState(null);
+  // The currently selected ratio (starts at the caller's default `aspect`).
+  const [selectedAspect, setSelectedAspect] = useState(aspect);
 
-  // aspect === null => free crop: use the image's own ratio so the whole image is
-  // selected by default (no forced reshape), while zoom/pan still work.
-  const freeCrop = aspect === null;
+  // Always know the image's own ratio so "Free" can default to it (no forced reshape)
+  // while zoom/pan/rotate still work.
   useEffect(() => {
-    if (!freeCrop) return;
     const im = new Image();
     im.onload = () => setNaturalAspect(im.naturalWidth / im.naturalHeight);
     im.src = imageSrc;
-  }, [freeCrop, imageSrc]);
+  }, [imageSrc]);
 
-  const effectiveAspect = freeCrop ? naturalAspect || 1 : aspect;
+  const freeCrop = selectedAspect === null;
+  const effectiveAspect = freeCrop ? naturalAspect || 1 : selectedAspect;
 
   const onCropComplete = useCallback((_, croppedPixels) => {
     croppedPixelsRef.current = croppedPixels;
@@ -143,6 +148,27 @@ export default function ImageCropper({
           {/* Footer */}
           <div className="flex flex-col gap-3 bg-zinc-900 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-4">
+              {aspectOptions && aspectOptions.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-zinc-400">Ratio</label>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {aspectOptions.map((opt) => (
+                      <button
+                        key={opt.label}
+                        type="button"
+                        onClick={() => setSelectedAspect(opt.value)}
+                        className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                          selectedAspect === opt.value
+                            ? "bg-white text-zinc-900"
+                            : "text-zinc-300 hover:bg-zinc-800"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-3">
                 <label className="text-xs text-zinc-400">Zoom</label>
                 <input
