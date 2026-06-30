@@ -82,7 +82,7 @@ export default function PrizeForm({ prize, onClose, onSuccess }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl border border-zinc-200 bg-white shadow-lg mx-4">
+      <div className="relative mx-4 max-h-[90vh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-xl border border-zinc-200 bg-white shadow-lg">
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-white px-5 py-4 rounded-t-xl">
           <h2 className="text-base font-semibold text-zinc-900">
@@ -175,10 +175,10 @@ export default function PrizeForm({ prize, onClose, onSuccess }) {
           )}
 
           {/* Colors */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
+            <div className="min-w-0">
               <label className="block text-sm font-medium text-zinc-700 mb-1">Segment Color</label>
-              <div className="flex items-center gap-3">
+              <div className="flex min-w-0 items-center gap-3">
                 <input
                   type="color"
                   value={form.color}
@@ -190,13 +190,13 @@ export default function PrizeForm({ prize, onClose, onSuccess }) {
                   type="text"
                   value={form.color}
                   onChange={(e) => handleChange("color", e.target.value)}
-                  className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900 font-mono focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors"
+                  className="w-full min-w-0 flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900 font-mono focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors"
                 />
               </div>
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="block text-sm font-medium text-zinc-700 mb-1">Text Color</label>
-              <div className="flex items-center gap-3">
+              <div className="flex min-w-0 items-center gap-3">
                 <input
                   type="color"
                   value={form.textColor}
@@ -208,7 +208,7 @@ export default function PrizeForm({ prize, onClose, onSuccess }) {
                   type="text"
                   value={form.textColor}
                   onChange={(e) => handleChange("textColor", e.target.value)}
-                  className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900 font-mono focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors"
+                  className="w-full min-w-0 flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900 font-mono focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors"
                 />
               </div>
             </div>
