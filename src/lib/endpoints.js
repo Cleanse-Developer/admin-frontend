@@ -204,6 +204,30 @@ export const adminDashboardApi = {
     api.get("/admin/dashboard/reports/customers").then((r) => r.data.data),
   productReport: () =>
     api.get("/admin/dashboard/reports/products").then((r) => r.data.data),
+
+  // KPI BFF. All revenue endpoints accept { dateFrom, dateTo, groupBy }.
+  kpiSummary: (params) =>
+    api.get("/admin/dashboard/kpi/summary", { params }).then((r) => r.data.data),
+  kpiSalesTrend: (params) =>
+    api.get("/admin/dashboard/kpi/sales-trend", { params }).then((r) => r.data.data),
+  kpiProfit: (params) =>
+    api.get("/admin/dashboard/kpi/profit", { params }).then((r) => r.data.data),
+  kpiOrdersOps: (params) =>
+    api.get("/admin/dashboard/kpi/orders-ops", { params }).then((r) => r.data.data),
+  kpiPayments: (params) =>
+    api.get("/admin/dashboard/kpi/payments", { params }).then((r) => r.data.data),
+  kpiRefunds: (params) =>
+    api.get("/admin/dashboard/kpi/refunds", { params }).then((r) => r.data.data),
+  kpiLocations: (params) =>
+    api.get("/admin/dashboard/kpi/locations", { params }).then((r) => r.data.data),
+  kpiDiscounts: (params) =>
+    api.get("/admin/dashboard/kpi/discounts", { params }).then((r) => r.data.data),
+  kpiCustomers: (params) =>
+    api.get("/admin/dashboard/kpi/customers", { params }).then((r) => r.data.data),
+  kpiInventory: (params) =>
+    api.get("/admin/dashboard/kpi/inventory", { params }).then((r) => r.data.data),
+  kpiQuickActions: (params) =>
+    api.get("/admin/dashboard/kpi/quick-actions", { params }).then((r) => r.data.data),
 };
 
 export const adminCustomerApi = {
@@ -357,4 +381,6 @@ export const adminCmsApi = {
         headers: { "Content-Type": "multipart/form-data" },
       })
       .then((r) => r.data.data),
+  syncInstagramReels: () =>
+    api.post("/admin/cms/instagram/sync-reels").then((r) => r.data.data),
 };

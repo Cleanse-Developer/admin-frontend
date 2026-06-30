@@ -1,5 +1,10 @@
 "use client";
 
+import { useState } from "react";
+
+import { adminCmsApi } from "@/lib/endpoints";
+import { useToast } from "@/context/toast-context";
+
 import CmsImageUpload from "./cms-image-upload";
 
 const inputClass =
@@ -18,7 +23,26 @@ const POSITION_OPTIONS = [
 const MAX_MARQUEE_LINES = 2;
 
 export default function CmsMarqueeEditor({ data, onChange }) {
+  const { showToast } = useToast();
+  const [syncing, setSyncing] = useState(false);
+
   const update = (field, value) => onChange({ ...data, [field]: value });
+
+  const syncFromInstagram = async () => {
+    setSyncing(true);
+    try {
+      const updated = await adminCmsApi.syncInstagramReels();
+      onChange(updated);
+      showToast("Reels synced from Instagram", "success");
+    } catch (err) {
+      showToast(
+        err.response?.data?.message || "Instagram sync failed",
+        "error"
+      );
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const updateMarqueeLine = (index, value) => {
     const lines = [...(data.marqueeLines || [])];
@@ -106,9 +130,21 @@ export default function CmsMarqueeEditor({ data, onChange }) {
 
       {/* Reels */}
       <div>
-        <h3 className="text-sm font-semibold text-zinc-900 mb-3">
-          Reel Cards
-        </h3>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-zinc-900">Reel Cards</h3>
+          <button
+            type="button"
+            onClick={syncFromInstagram}
+            disabled={syncing}
+            className="shrink-0 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-50"
+          >
+            {syncing ? "Syncing…" : "Sync from Instagram"}
+          </button>
+        </div>
+        <p className="text-xs text-zinc-400 mb-3">
+          Pulls your latest Instagram reels (video + thumbnail re-hosted on our
+          servers). Titles/positions you set are kept.
+        </p>
         <div className="space-y-4">
           {reels.map((reel, i) => (
             <div

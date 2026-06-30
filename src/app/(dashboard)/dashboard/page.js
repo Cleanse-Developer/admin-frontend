@@ -12,9 +12,10 @@ import {
   CubeIcon,
   PersonIcon,
   ArchiveIcon,
+  BarChartIcon,
 } from "@radix-ui/react-icons";
 import { adminDashboardApi } from "@/lib/endpoints";
-import { AreaChart, DonutGauge, Sparkline } from "./_components/charts";
+import { AreaChart, DonutGauge, Sparkline, BarList } from "./_components/charts";
 import { normalizeSeries, normalizeProducts } from "./_components/data";
 import { exportExcel, exportCsv } from "./_components/export";
 
@@ -62,6 +63,9 @@ function inrShort(amount) {
 function num(v) {
   return Number(v || 0).toLocaleString("en-IN");
 }
+function pct(v) {
+  return v === null || v === undefined ? "—" : `${Number(v).toFixed(1)}%`;
+}
 function fmtDate(d) {
   return new Date(d).toLocaleDateString("en-IN", {
     day: "numeric",
@@ -70,15 +74,30 @@ function fmtDate(d) {
   });
 }
 
-/* trend % from first→last of a numeric series */
-function seriesTrend(series, key) {
-  const vals = series.map((s) => s[key]).filter((v) => Number.isFinite(v));
-  if (vals.length < 2) return null;
-  const prev = vals[vals.length - 2];
-  const last = vals[vals.length - 1];
-  if (!prev) return null;
-  return ((last - prev) / Math.abs(prev)) * 100;
+/* period → BFF range params. Backend derives the comparison (previous equal
+   window) itself, so we only send the current window + a sensible groupBy. */
+function rangeForPeriod(period) {
+  const now = new Date();
+  let start;
+  let groupBy = "day";
+  if (period === "today") {
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  } else if (period === "week") {
+    start = new Date(now);
+    start.setDate(now.getDate() - 6);
+    start.setHours(0, 0, 0, 0);
+  } else if (period === "year") {
+    start = new Date(now.getFullYear(), 0, 1);
+    groupBy = "month";
+  } else {
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+  return { dateFrom: start.toISOString(), dateTo: now.toISOString(), groupBy };
 }
+
+/* pull deltaPct off a compare() object safely */
+const delta = (c) => (c && Number.isFinite(c.deltaPct) ? c.deltaPct : null);
+const val = (c, d = 0) => (c && c.value !== undefined ? c.value : d);
 
 /* ------------------------------------------------------------------ */
 /* small UI pieces                                                   */
@@ -160,7 +179,40 @@ function Card({ title, action, children, className = "" }) {
   );
 }
 
-/* simple Radix-select-free dropdown trigger styled button */
+/* small labelled stat tile (operations band, customer metrics) */
+function MiniStat({ label, value, hint }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-3">
+      <p className="text-xs text-zinc-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-zinc-900">{value}</p>
+      {hint && <p className="mt-0.5 text-[11px] text-zinc-400">{hint}</p>}
+    </div>
+  );
+}
+
+/* one line of the P&L statement */
+function PLRow({ label, value, strong, deduct, divider }) {
+  return (
+    <div
+      className={`flex items-center justify-between py-2 text-sm ${
+        divider ? "border-t border-zinc-200" : ""
+      }`}
+    >
+      <span className={strong ? "font-semibold text-zinc-900" : "text-zinc-600"}>
+        {label}
+      </span>
+      <span
+        className={`tabular-nums ${
+          strong ? "font-semibold text-zinc-900" : "text-zinc-700"
+        }`}
+      >
+        {deduct && value > 0 ? "−" : ""}
+        {inr(Math.abs(value))}
+      </span>
+    </div>
+  );
+}
+
 function Menu({ trigger, children, align = "end" }) {
   return (
     <DropdownMenu.Root>
@@ -194,91 +246,87 @@ function MenuItem({ children, onSelect, active }) {
 /* page                                                              */
 /* ------------------------------------------------------------------ */
 export default function DashboardPage() {
-  const [data, setData] = useState(null);
+  const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const [period, setPeriod] = useState("month");
+  const [kpisLoading, setKpisLoading] = useState(false);
+  const [kpi, setKpi] = useState({}); // { summary, trend, profit, payments, refunds, locations, discounts, customers, ops }
   const [series, setSeries] = useState([]);
-  const [seriesLoading, setSeriesLoading] = useState(false);
   const [topProducts, setTopProducts] = useState([]);
 
   const [statusFilter, setStatusFilter] = useState("all");
 
-  /* base overview */
+  /* period-independent widgets: recent orders, low stock, top sellers */
   const fetchOverview = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await adminDashboardApi.overview();
-      setData(result);
+      const [ov, products] = await Promise.all([
+        adminDashboardApi.overview(),
+        adminDashboardApi.productReport().catch(() => []),
+      ]);
+      setOverview(ov);
+      setTopProducts(normalizeProducts(products));
     } catch {
-      setData(null);
+      setOverview(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  /* product report (top sellers) */
-  const fetchProducts = useCallback(async () => {
-    try {
-      const res = await adminDashboardApi.productReport();
-      setTopProducts(normalizeProducts(res));
-    } catch {
-      setTopProducts([]);
-    }
-  }, []);
-
-  /* sales series — refetched on period change */
-  const fetchSeries = useCallback(async (p) => {
-    setSeriesLoading(true);
-    try {
-      const res = await adminDashboardApi.salesReport({ period: p, range: p });
-      setSeries(normalizeSeries(res, p));
-    } catch {
-      setSeries([]);
-    } finally {
-      setSeriesLoading(false);
-    }
+  /* period-based KPIs — refetched on period change. Each endpoint is
+     independent: one failing leaves the rest intact. */
+  const fetchKpis = useCallback(async (p) => {
+    setKpisLoading(true);
+    const params = rangeForPeriod(p);
+    const calls = {
+      summary: adminDashboardApi.kpiSummary(params),
+      trend: adminDashboardApi.kpiSalesTrend(params),
+      profit: adminDashboardApi.kpiProfit(params),
+      payments: adminDashboardApi.kpiPayments(params),
+      refunds: adminDashboardApi.kpiRefunds(params),
+      locations: adminDashboardApi.kpiLocations(params),
+      discounts: adminDashboardApi.kpiDiscounts(params),
+      customers: adminDashboardApi.kpiCustomers(params),
+      ops: adminDashboardApi.kpiOrdersOps(params),
+    };
+    const keys = Object.keys(calls);
+    const settled = await Promise.allSettled(keys.map((k) => calls[k]));
+    const next = {};
+    keys.forEach((k, i) => {
+      next[k] = settled[i].status === "fulfilled" ? settled[i].value : null;
+    });
+    setKpi(next);
+    setSeries(normalizeSeries(next.trend?.current || [], p));
+    setKpisLoading(false);
   }, []);
 
   useEffect(() => {
     fetchOverview();
-    fetchProducts();
-  }, [fetchOverview, fetchProducts]);
+  }, [fetchOverview]);
 
   useEffect(() => {
-    fetchSeries(period);
-  }, [period, fetchSeries]);
+    fetchKpis(period);
+  }, [period, fetchKpis]);
 
   const {
-    totalOrders = 0,
-    totalRevenue = 0,
     totalCustomers = 0,
-    averageOrderValue = 0,
     ordersToday = 0,
     revenueToday = 0,
     recentOrders = [],
     lowStockProducts = [],
-  } = data || {};
+  } = overview || {};
+
+  const summary = kpi.summary || {};
+  const profit = kpi.profit?.current || null;
+  const profitMemo = kpi.profit?.memo || null;
 
   /* derived */
-  const revenueTrend = useMemo(() => seriesTrend(series, "revenue"), [series]);
-  const ordersTrend = useMemo(() => seriesTrend(series, "orders"), [series]);
   const revSpark = useMemo(() => series.map((s) => s.revenue), [series]);
   const ordSpark = useMemo(() => series.map((s) => s.orders), [series]);
-
-  const periodRevenue = useMemo(
-    () => series.reduce((a, s) => a + s.revenue, 0),
-    [series],
-  );
-  const periodOrders = useMemo(
-    () => series.reduce((a, s) => a + s.orders, 0),
-    [series],
-  );
-
-  const salesGrowth = useMemo(() => {
-    if (revenueTrend !== null) return revenueTrend;
-    return 0;
-  }, [revenueTrend]);
+  const periodRevenue = val(summary.totalSales);
+  const periodOrders = val(summary.orders);
+  const salesGrowth = delta(summary.totalSales) ?? 0;
 
   const topByRevenue = useMemo(
     () =>
@@ -288,13 +336,40 @@ export default function DashboardPage() {
     [topProducts],
   );
 
-  /* filtered recent orders */
-  const filteredOrders = useMemo(() => {
-    return recentOrders.filter((o) => {
-      if (statusFilter !== "all" && o.status !== statusFilter) return false;
-      return true;
-    });
-  }, [recentOrders, statusFilter]);
+  const filteredOrders = useMemo(
+    () =>
+      recentOrders.filter(
+        (o) => statusFilter === "all" || o.status === statusFilter,
+      ),
+    [recentOrders, statusFilter],
+  );
+
+  /* payment / location / discount bar data */
+  const paymentBars = useMemo(
+    () =>
+      (kpi.payments?.mix || []).map((m) => ({
+        label: m.method?.toUpperCase() || "—",
+        value: m.revenue || 0,
+      })),
+    [kpi.payments],
+  );
+  const locationBars = useMemo(
+    () =>
+      (kpi.locations?.byState || []).map((s) => ({
+        label: s.state,
+        value: s.revenue || 0,
+      })),
+    [kpi.locations],
+  );
+  const discountBreakdown = kpi.discounts?.breakdown || {};
+  const discountBars = useMemo(
+    () =>
+      Object.entries(discountBreakdown)
+        .map(([k, v]) => ({ label: k, value: v || 0 }))
+        .filter((b) => b.value > 0)
+        .sort((a, b) => b.value - a.value),
+    [discountBreakdown],
+  );
 
   /* exports */
   const orderRows = filteredOrders.map((o) => [
@@ -306,38 +381,50 @@ export default function DashboardPage() {
     o.createdAt ? fmtDate(o.createdAt) : "",
   ]);
   const orderCols = ["Order #", "Customer", "Email", "Status", "Total (₹)", "Date"];
+  const periodLabel = PERIODS.find((p) => p.value === period)?.label || "";
 
   function handleExportExcel() {
-    const periodLabel = PERIODS.find((p) => p.value === period)?.label || "";
-    exportExcel(
-      [
-        {
-          title: `Key Metrics — ${periodLabel}`,
-          columns: ["Metric", "Value"],
-          rows: [
-            ["Total Revenue", totalRevenue],
-            ["Total Orders", totalOrders],
-            ["Total Customers", totalCustomers],
-            ["Average Order Value", averageOrderValue],
-            ["Orders Today", ordersToday],
-            ["Revenue Today", revenueToday],
-            [`Revenue (${periodLabel})`, periodRevenue],
-            [`Orders (${periodLabel})`, periodOrders],
-          ],
-        },
-        {
-          title: `Sales Over Time — ${periodLabel}`,
-          columns: ["Period", "Revenue", "Orders"],
-          rows: series.map((s) => [s.label, s.revenue, s.orders]),
-        },
-        {
-          title: "Recent Orders",
-          columns: orderCols,
-          rows: orderRows,
-        },
-      ],
-      `cleanse-dashboard-${period}.xls`,
-    );
+    const sections = [
+      {
+        title: `Key Metrics — ${periodLabel}`,
+        columns: ["Metric", "Value", "vs prev"],
+        rows: [
+          ["Total Sales", periodRevenue, pct(delta(summary.totalSales))],
+          ["Orders", periodOrders, pct(delta(summary.orders))],
+          ["Net Profit", val(summary.netProfit), pct(delta(summary.netProfit))],
+          ["Net Margin %", val(summary.netProfitMargin), pct(delta(summary.netProfitMargin))],
+          ["Avg Order Value", val(summary.aov), pct(delta(summary.aov))],
+          ["GMV", val(summary.gmv), pct(delta(summary.gmv))],
+          ["Orders Today", ordersToday, ""],
+          ["Revenue Today", revenueToday, ""],
+        ],
+      },
+      {
+        title: `Sales Over Time — ${periodLabel}`,
+        columns: ["Period", "Revenue", "Orders"],
+        rows: series.map((s) => [s.label, s.revenue, s.orders]),
+      },
+    ];
+    if (profit) {
+      sections.push({
+        title: `P&L — ${periodLabel}`,
+        columns: ["Line", "Amount (₹)"],
+        rows: [
+          ["Revenue", profit.revenue],
+          ["COGS", -profit.cogs],
+          ["Gross Profit", profit.grossProfit],
+          ["Packaging", -profit.costs.packaging],
+          ["Shipping", -profit.costs.shipping],
+          ["Warehouse", -profit.costs.warehouse],
+          ["Gateway Fees", -profit.costs.gatewayFees],
+          ["Refunds", -profit.costs.refunds],
+          ["Net Profit", profit.netProfit],
+          ["Net Margin %", profit.netProfitMargin],
+        ],
+      });
+    }
+    sections.push({ title: "Recent Orders", columns: orderCols, rows: orderRows });
+    exportExcel(sections, `cleanse-dashboard-${period}.xls`);
   }
 
   function handleExportCsv() {
@@ -352,7 +439,7 @@ export default function DashboardPage() {
       </div>
     );
   }
-  if (!data) {
+  if (!overview) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-32">
         <p className="text-sm text-zinc-400">Failed to load dashboard data.</p>
@@ -366,7 +453,11 @@ export default function DashboardPage() {
     );
   }
 
-  const periodLabel = PERIODS.find((p) => p.value === period)?.label || "";
+  const ops = kpi.ops || {};
+  const customers = kpi.customers || {};
+  const refunds = kpi.refunds || {};
+  const payments = kpi.payments || {};
+  const discounts = kpi.discounts || {};
 
   return (
     <div className="space-y-5">
@@ -380,7 +471,6 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* period */}
           <Menu
             trigger={
               <button className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-300">
@@ -400,7 +490,6 @@ export default function DashboardPage() {
             ))}
           </Menu>
 
-          {/* status filter */}
           <Menu
             trigger={
               <button className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-300">
@@ -420,7 +509,6 @@ export default function DashboardPage() {
             ))}
           </Menu>
 
-          {/* export */}
           <Menu
             trigger={
               <button className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800">
@@ -435,42 +523,43 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* KPI cards */}
+      {/* KPI cards — period-based with real vs-previous trends */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <KpiCard
           dark
-          label="Total Revenue"
-          value={inr(totalRevenue)}
-          sub="all time"
-          trend={revenueTrend}
+          label={`Total Sales · ${periodLabel}`}
+          value={inr(periodRevenue)}
+          sub="vs prev period"
+          trend={delta(summary.totalSales)}
           spark={revSpark}
           icon={<span className="text-sm font-semibold">₹</span>}
         />
         <KpiCard
-          label="Total Orders"
-          value={num(totalOrders)}
-          sub="all time"
-          trend={ordersTrend}
+          label={`Net Profit · ${periodLabel}`}
+          value={inr(val(summary.netProfit))}
+          sub={`${pct(val(summary.netProfitMargin))} margin`}
+          trend={delta(summary.netProfit)}
+          icon={<BarChartIcon className="h-4 w-4" />}
+        />
+        <KpiCard
+          label={`Orders · ${periodLabel}`}
+          value={num(periodOrders)}
+          sub="vs prev period"
+          trend={delta(summary.orders)}
           spark={ordSpark}
           icon={<ArchiveIcon className="h-4 w-4" />}
         />
         <KpiCard
-          label="Total Customers"
-          value={num(totalCustomers)}
-          sub="all time"
-          icon={<PersonIcon className="h-4 w-4" />}
-        />
-        <KpiCard
           label="Avg. Order Value"
-          value={inr(averageOrderValue)}
-          sub="per order"
+          value={inr(val(summary.aov))}
+          sub={`GMV ${inrShort(val(summary.gmv))}`}
+          trend={delta(summary.aov)}
           icon={<CubeIcon className="h-4 w-4" />}
         />
       </div>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {/* sales over time */}
         <Card
           className="lg:col-span-2"
           title="Sales Over Time"
@@ -488,7 +577,7 @@ export default function DashboardPage() {
             </div>
           }
         >
-          {seriesLoading ? (
+          {kpisLoading ? (
             <div className="flex h-[300px] items-center justify-center">
               <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900" />
             </div>
@@ -496,9 +585,7 @@ export default function DashboardPage() {
             <>
               <div className="mb-2 flex flex-wrap items-end gap-x-8 gap-y-2">
                 <div>
-                  <p className="text-xs text-zinc-500">
-                    Revenue · {periodLabel}
-                  </p>
+                  <p className="text-xs text-zinc-500">Revenue · {periodLabel}</p>
                   <p className="text-xl font-semibold text-zinc-900">
                     {inr(periodRevenue)}
                   </p>
@@ -520,7 +607,6 @@ export default function DashboardPage() {
           )}
         </Card>
 
-        {/* growth gauge */}
         <Card title="Sales Growth">
           <div className="flex flex-col items-center">
             <div className="flex justify-center py-2">
@@ -547,17 +633,173 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Orders + Top products row */}
+      {/* P&L + Payments + Refunds */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {/* recent orders */}
+        <Card title="Profit & Loss" action={<span className="text-xs text-zinc-400">{periodLabel}</span>}>
+          {profit ? (
+            <div>
+              <PLRow label="Revenue" value={profit.revenue} />
+              <PLRow label="Cost of goods" value={profit.cogs} deduct />
+              <PLRow label="Gross profit" value={profit.grossProfit} strong divider />
+              <PLRow label="Packaging" value={profit.costs.packaging} deduct />
+              <PLRow label="Shipping" value={profit.costs.shipping} deduct />
+              <PLRow label="Warehouse" value={profit.costs.warehouse} deduct />
+              <PLRow label="Gateway fees" value={profit.costs.gatewayFees} deduct />
+              <PLRow label="Refunds" value={profit.costs.refunds} deduct />
+              <PLRow label="Net profit" value={profit.netProfit} strong divider />
+              <div className="mt-2 flex items-center justify-between rounded-xl bg-zinc-900 px-3 py-2 text-sm text-white">
+                <span>Net margin</span>
+                <span className="font-semibold tabular-nums">
+                  {pct(profit.netProfitMargin)}
+                </span>
+              </div>
+              {profitMemo && (
+                <p className="mt-3 text-[11px] leading-relaxed text-zinc-400">
+                  GMV {inrShort(profitMemo.grossMerchandiseValue)} · discounts given{" "}
+                  {inrShort(profitMemo.discountsGiven)}. Costs use admin cost config;
+                  set product cost prices for accurate COGS.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="py-8 text-center text-sm text-zinc-400">
+              Profit data unavailable.
+            </p>
+          )}
+        </Card>
+
+        <Card title="Payments">
+          <BarList items={paymentBars} formatValue={inrShort} />
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <MiniStat label="COD share" value={pct(payments.codSharePct)} />
+            <MiniStat
+              label="Payment failures"
+              value={pct(payments.paymentFailure?.ratePct)}
+              hint={
+                payments.paymentFailure
+                  ? `${payments.paymentFailure.failed}/${payments.paymentFailure.total} sessions`
+                  : undefined
+              }
+            />
+          </div>
+        </Card>
+
+        <Card title="Refunds & Returns">
+          <div className="grid grid-cols-2 gap-3">
+            <MiniStat label="Refunded orders" value={num(refunds.refundCount)} />
+            <MiniStat label="Refund amount" value={inrShort(refunds.refundAmountTotal)} />
+            <MiniStat label="Refund rate" value={pct(refunds.refundRate)} />
+            <MiniStat
+              label="Returns pending"
+              value={num(refunds.pendingReturnRequests)}
+            />
+          </div>
+          {refunds.byStatus?.length > 0 && (
+            <ul className="mt-4 space-y-1.5 text-xs">
+              {refunds.byStatus.map((s) => (
+                <li
+                  key={s.status}
+                  className="flex items-center justify-between text-zinc-500"
+                >
+                  <span className="capitalize">{s.status}</span>
+                  <span className="text-zinc-700">
+                    {s.count} · {inrShort(s.amount)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+
+      {/* Locations + Discounts + Customers */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card title="Sales by Location">
+          <BarList items={locationBars} formatValue={inrShort} />
+        </Card>
+
+        <Card title="Discounts">
+          <div className="mb-3 flex items-end justify-between">
+            <div>
+              <p className="text-xs text-zinc-500">Total given · {periodLabel}</p>
+              <p className="text-xl font-semibold text-zinc-900">
+                {inr(discounts.totalDiscountGiven)}
+              </p>
+            </div>
+            <span className="text-xs text-zinc-400">
+              {pct(discounts.discountAsPctOfGmv)} of GMV
+            </span>
+          </div>
+          <BarList items={discountBars} formatValue={inrShort} />
+          {discounts.topCoupons?.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-xs font-medium text-zinc-400">Top coupons</p>
+              <ul className="space-y-1.5 text-sm">
+                {discounts.topCoupons.slice(0, 4).map((c) => (
+                  <li
+                    key={c.code}
+                    className="flex items-center justify-between text-zinc-600"
+                  >
+                    <span className="font-medium text-zinc-900">{c.code}</span>
+                    <span className="text-xs text-zinc-400">
+                      {num(c.usageCount)} uses
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </Card>
+
+        <Card title="Customers & Growth">
+          <div className="grid grid-cols-2 gap-3">
+            <MiniStat
+              label="New customers"
+              value={num(val(customers.newCustomers))}
+              hint={`${pct(delta(customers.newCustomers))} vs prev`}
+            />
+            <MiniStat label="Repeat rate" value={pct(customers.repeatPurchaseRate)} />
+            <MiniStat label="Referral signups" value={num(customers.referralSignups)} />
+            <MiniStat label="Referral payout" value={inrShort(customers.referralPayout)} />
+            <MiniStat
+              label="Reviews to approve"
+              value={num(customers.pendingReviewApprovals)}
+            />
+            <MiniStat
+              label="Loyalty liability"
+              value={num(customers.loyaltyLiability)}
+              hint="points outstanding"
+            />
+          </div>
+          <p className="mt-3 text-[11px] text-zinc-400">
+            {num(totalCustomers)} total customers
+          </p>
+        </Card>
+      </div>
+
+      {/* Operations band */}
+      <Card title="Operations" action={<span className="text-xs text-zinc-400">live</span>}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
+          <MiniStat label="Pending" value={num(ops.pendingOrders)} />
+          <MiniStat label="Active" value={num(ops.activeOrders)} />
+          <MiniStat label="Awaiting pickup" value={num(ops.awaitingPickup)} />
+          <MiniStat label="In transit" value={num(ops.inTransit)} />
+          <MiniStat label="RTO" value={num(ops.rtoCount)} />
+          <MiniStat label="Returns" value={num(ops.returnsPending)} />
+          <MiniStat label="COD to confirm" value={num(ops.codAwaitingConfirmation)} />
+          <MiniStat
+            label="Avg fulfillment"
+            value={ops.avgFulfillmentHours ? `${ops.avgFulfillmentHours}h` : "—"}
+          />
+        </div>
+      </Card>
+
+      {/* Recent orders + Top products */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card
           className="lg:col-span-2"
           title="Recent Orders"
-          action={
-            <span className="text-xs text-zinc-400">
-              {filteredOrders.length} shown
-            </span>
-          }
+          action={<span className="text-xs text-zinc-400">{filteredOrders.length} shown</span>}
         >
           <div className="-mx-5 max-h-[420px] overflow-auto px-5">
             <table className="w-full min-w-[560px] text-sm">
@@ -587,12 +829,8 @@ export default function DashboardPage() {
                         {order.orderNumber}
                       </td>
                       <td className="py-3 pr-3">
-                        <div className="text-zinc-700">
-                          {order.user?.fullName || "—"}
-                        </div>
-                        <div className="text-xs text-zinc-400">
-                          {order.user?.email || ""}
-                        </div>
+                        <div className="text-zinc-700">{order.user?.fullName || "—"}</div>
+                        <div className="text-xs text-zinc-400">{order.user?.email || ""}</div>
                       </td>
                       <td className="whitespace-nowrap py-3 pr-3 font-medium text-zinc-900">
                         {inr(order.pricing?.total)}
@@ -618,7 +856,6 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        {/* top selling products */}
         <Card title="Top Selling Products">
           {topByRevenue.length === 0 ? (
             <p className="py-8 text-center text-sm text-zinc-400">
@@ -632,9 +869,7 @@ export default function DashboardPage() {
                     {i + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-zinc-900">
-                      {p.name}
-                    </p>
+                    <p className="truncate text-sm font-medium text-zinc-900">{p.name}</p>
                     <p className="text-xs text-zinc-400">
                       {p.sold ? `${num(p.sold)} sold` : ""}
                       {p.sold && p.revenue ? " · " : ""}
@@ -656,11 +891,7 @@ export default function DashboardPage() {
       {/* Low stock */}
       <Card
         title="Low Stock Products"
-        action={
-          <span className="text-xs text-zinc-400">
-            {lowStockProducts.length} items
-          </span>
-        }
+        action={<span className="text-xs text-zinc-400">{lowStockProducts.length} items</span>}
       >
         {lowStockProducts.length === 0 ? (
           <p className="py-8 text-center text-sm text-zinc-400">
