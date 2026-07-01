@@ -193,9 +193,13 @@ export default function ZoneForm({ zone, onClose, onSuccess }) {
     name: zone?.name || "",
     pincodes: zone?.pincodes?.join(", ") || "",
     states: zone?.states || [],
-    standardRate: zone?.rates?.standard ?? 99,
+    // Per-method rates, falling back to legacy flat rates for zones created
+    // before the COD/prepaid split.
+    prepaidRate: zone?.rates?.prepaid?.standard ?? zone?.rates?.standard ?? 99,
+    prepaidFree: zone?.rates?.prepaid?.freeAbove ?? zone?.rates?.freeAbove ?? 1200,
+    codRate: zone?.rates?.cod?.standard ?? zone?.rates?.standard ?? 99,
+    codFree: zone?.rates?.cod?.freeAbove ?? zone?.rates?.freeAbove ?? 1200,
     expressRate: zone?.rates?.express ?? 149,
-    freeAbove: zone?.rates?.freeAbove ?? 1200,
     standardDays: zone?.estimatedDays?.standard || "3-5",
     expressDays: zone?.estimatedDays?.express || "1-2",
     isActive: zone?.isActive ?? true,
@@ -228,9 +232,15 @@ export default function ZoneForm({ zone, onClose, onSuccess }) {
       pincodes: pincodeList,
       states: form.states,
       rates: {
-        standard: Number(form.standardRate) || 99,
+        prepaid: {
+          standard: Number(form.prepaidRate) || 99,
+          freeAbove: Number(form.prepaidFree) || 1200,
+        },
+        cod: {
+          standard: Number(form.codRate) || 99,
+          freeAbove: Number(form.codFree) || 1200,
+        },
         express: Number(form.expressRate) || 149,
-        freeAbove: Number(form.freeAbove) || 1200,
       },
       estimatedDays: {
         standard: form.standardDays || "3-5",
@@ -309,42 +319,51 @@ export default function ZoneForm({ zone, onClose, onSuccess }) {
             onChange={(states) => handleChange("states", states)}
           />
 
-          {/* Rates */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 mb-1">Standard Rate</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">&#8377;</span>
-                <input
-                  type="number"
-                  value={form.standardRate}
-                  onChange={(e) => handleChange("standardRate", e.target.value)}
-                  className="w-full rounded-lg border border-zinc-200 pl-7 pr-3 py-2 text-sm text-zinc-900 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors"
-                />
+          {/* Rates — per payment method (Prepaid / COD), plus Express */}
+          <div className="space-y-3">
+            {[
+              { label: "Prepaid", rate: "prepaidRate", free: "prepaidFree" },
+              { label: "COD", rate: "codRate", free: "codFree" },
+            ].map((m) => (
+              <div key={m.rate} className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 mb-1">{m.label} Rate</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">&#8377;</span>
+                    <input
+                      type="number"
+                      value={form[m.rate]}
+                      onChange={(e) => handleChange(m.rate, e.target.value)}
+                      className="w-full rounded-lg border border-zinc-200 pl-7 pr-3 py-2 text-sm text-zinc-900 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 mb-1">{m.label} Free Above</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">&#8377;</span>
+                    <input
+                      type="number"
+                      value={form[m.free]}
+                      onChange={(e) => handleChange(m.free, e.target.value)}
+                      className="w-full rounded-lg border border-zinc-200 pl-7 pr-3 py-2 text-sm text-zinc-900 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors"
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 mb-1">Express Rate</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">&#8377;</span>
-                <input
-                  type="number"
-                  value={form.expressRate}
-                  onChange={(e) => handleChange("expressRate", e.target.value)}
-                  className="w-full rounded-lg border border-zinc-200 pl-7 pr-3 py-2 text-sm text-zinc-900 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 mb-1">Free Above</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">&#8377;</span>
-                <input
-                  type="number"
-                  value={form.freeAbove}
-                  onChange={(e) => handleChange("freeAbove", e.target.value)}
-                  className="w-full rounded-lg border border-zinc-200 pl-7 pr-3 py-2 text-sm text-zinc-900 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors"
-                />
+            ))}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">Express Rate</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">&#8377;</span>
+                  <input
+                    type="number"
+                    value={form.expressRate}
+                    onChange={(e) => handleChange("expressRate", e.target.value)}
+                    className="w-full rounded-lg border border-zinc-200 pl-7 pr-3 py-2 text-sm text-zinc-900 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors"
+                  />
+                </div>
               </div>
             </div>
           </div>

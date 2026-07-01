@@ -7,15 +7,17 @@ import {
   Pencil1Icon,
   PlusIcon,
 } from "@radix-ui/react-icons";
-import { adminCouponApi } from "@/lib/endpoints";
+import { ShoppingCart } from "lucide-react";
+import { adminCouponApi, adminSettingsApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
 import ConfirmDialog from "@/components/confirm-dialog";
 import StatusBadge from "@/components/status-badge";
 import CouponForm from "./coupon-form";
+import TierDiscountSheet from "./tier-discount-sheet";
 
-const STATUS_TABS = [
-  { label: "All", value: "" },
-  { label: "Active", value: "active" },
+const TABS = [
+  { label: "General", value: "general" },
+  { label: "Spin Wheel", value: "spin" },
   { label: "Expired", value: "expired" },
 ];
 
@@ -38,10 +40,12 @@ export default function CouponsPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [editCoupon, setEditCoupon] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [tierOpen, setTierOpen] = useState(false);
+  const [tierEnabled, setTierEnabled] = useState(false);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [tab, setTab] = useState("general");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, page: 1, pages: 1, limit: 20 });
   const debounceRef = useRef(null);
@@ -61,7 +65,12 @@ export default function CouponsPage() {
     try {
       const params = { page, limit: 20 };
       if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
-      if (statusFilter) params.status = statusFilter;
+      if (tab === "expired") {
+        params.expired = "true";
+      } else {
+        params.expired = "false";
+        params.source = tab; // "general" | "spin"
+      }
       const data = await adminCouponApi.list(params);
       setCoupons(Array.isArray(data?.coupons) ? data.coupons : Array.isArray(data) ? data : []);
       if (data?.pagination) setPagination(data.pagination);
@@ -70,11 +79,22 @@ export default function CouponsPage() {
     } finally {
       setLoading(false);
     }
-  }, [showToast, page, debouncedSearch, statusFilter]);
+  }, [showToast, page, debouncedSearch, tab]);
 
   useEffect(() => {
     fetchCoupons();
   }, [fetchCoupons]);
+
+  // Tier-discount active status drives the toolbar button indicator.
+  useEffect(() => {
+    adminSettingsApi
+      .get()
+      .then((data) => {
+        const cfg = data?.discount_tier_config;
+        setTierEnabled(cfg ? cfg.enabled !== false : false);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -132,6 +152,20 @@ export default function CouponsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setTierOpen(true)}
+            className="relative flex items-center gap-2 rounded-lg border border-zinc-900 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-50"
+            title="Cart tier discounts"
+          >
+            <ShoppingCart className="h-4 w-4" />
+            Tier Discount
+            <span
+              className={`h-2 w-2 rounded-full ${
+                tierEnabled ? "bg-green-500" : "bg-zinc-300"
+              }`}
+              title={tierEnabled ? "Active" : "Disabled"}
+            />
+          </button>
           <Link
             href="/special-coupons/new"
             className="flex items-center gap-2 rounded-lg border border-zinc-900 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-50"
@@ -159,17 +193,17 @@ export default function CouponsPage() {
           className="w-full sm:max-w-xs rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors"
         />
         <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-0.5">
-          {STATUS_TABS.map((tab) => (
+          {TABS.map((t) => (
             <button
-              key={tab.value}
-              onClick={() => { setStatusFilter(tab.value); setPage(1); }}
+              key={t.value}
+              onClick={() => { setTab(t.value); setPage(1); }}
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                statusFilter === tab.value
+                tab === t.value
                   ? "bg-zinc-900 text-white"
                   : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50"
               }`}
             >
-              {tab.label}
+              {t.label}
             </button>
           ))}
         </div>
@@ -340,6 +374,13 @@ export default function CouponsPage() {
           onSuccess={handleFormSuccess}
         />
       )}
+
+      {/* Cart tier discounts bottom sheet */}
+      <TierDiscountSheet
+        open={tierOpen}
+        onOpenChange={setTierOpen}
+        onStatusChange={setTierEnabled}
+      />
     </div>
   );
 }

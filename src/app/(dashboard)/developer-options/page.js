@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { ReloadIcon, CheckCircledIcon } from "@radix-ui/react-icons";
+import { MessageCircle } from "lucide-react";
 import { adminShiprocketApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
 
@@ -127,6 +129,23 @@ export default function DeveloperOptionsPage() {
             </div>
           </>
         )}
+      </div>
+
+      {/* WhatsApp Automation section */}
+      <div className="rounded-xl border border-zinc-200 bg-white p-6 space-y-4 max-w-3xl mt-6">
+        <div>
+          <h2 className="text-base font-semibold text-zinc-900">WhatsApp Automation</h2>
+          <p className="text-sm text-zinc-500 mt-0.5">
+            Manage automated WhatsApp messages and flows.
+          </p>
+        </div>
+        <Link
+          href="/whatsapp-automation"
+          className="inline-flex items-center gap-2 rounded-lg border border-zinc-900 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-50"
+        >
+          <MessageCircle className="h-4 w-4" />
+          Open WhatsApp Automation
+        </Link>
       </div>
     </div>
   );

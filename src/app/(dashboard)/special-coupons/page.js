@@ -11,10 +11,12 @@ import {
   DotsVerticalIcon,
 } from "@radix-ui/react-icons";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { adminSpecialCouponApi } from "@/lib/endpoints";
+import { ShoppingCart } from "lucide-react";
+import { adminSpecialCouponApi, adminSettingsApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
 import ConfirmDialog from "@/components/confirm-dialog";
 import StatusBadge from "@/components/status-badge";
+import TierDiscountSheet from "../coupons/tier-discount-sheet";
 
 const STATUS_TABS = [
   { label: "All", value: "" },
@@ -99,6 +101,8 @@ export default function SpecialCouponsPage() {
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [tierOpen, setTierOpen] = useState(false);
+  const [tierEnabled, setTierEnabled] = useState(false);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -139,6 +143,17 @@ export default function SpecialCouponsPage() {
   useEffect(() => {
     fetchPromotions();
   }, [fetchPromotions]);
+
+  // Tier-discount active status drives the toolbar button indicator.
+  useEffect(() => {
+    adminSettingsApi
+      .get()
+      .then((data) => {
+        const cfg = data?.discount_tier_config;
+        setTierEnabled(cfg ? cfg.enabled !== false : false);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -184,13 +199,29 @@ export default function SpecialCouponsPage() {
             Manage advanced promotions: BOGO, volume discounts, free gifts, and more
           </p>
         </div>
-        <Link
-          href="/special-coupons/new"
-          className="flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800"
-        >
-          <PlusIcon className="h-4 w-4" />
-          Add Special Coupon
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setTierOpen(true)}
+            className="relative flex items-center gap-2 rounded-lg border border-zinc-900 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-50"
+            title="Cart tier discounts"
+          >
+            <ShoppingCart className="h-4 w-4" />
+            Tier Discount
+            <span
+              className={`h-2 w-2 rounded-full ${
+                tierEnabled ? "bg-green-500" : "bg-zinc-300"
+              }`}
+              title={tierEnabled ? "Active" : "Disabled"}
+            />
+          </button>
+          <Link
+            href="/special-coupons/new"
+            className="flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800"
+          >
+            <PlusIcon className="h-4 w-4" />
+            Add Special Coupon
+          </Link>
+        </div>
       </div>
 
       {/* Search & Filter Bar */}
@@ -429,6 +460,13 @@ export default function SpecialCouponsPage() {
         confirmLabel="Delete"
         onConfirm={handleDelete}
         loading={deleteLoading}
+      />
+
+      {/* Cart tier discounts bottom sheet */}
+      <TierDiscountSheet
+        open={tierOpen}
+        onOpenChange={setTierOpen}
+        onStatusChange={setTierEnabled}
       />
     </div>
   );

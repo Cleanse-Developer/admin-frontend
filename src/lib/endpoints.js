@@ -228,6 +228,9 @@ export const adminDashboardApi = {
     api.get("/admin/dashboard/kpi/inventory", { params }).then((r) => r.data.data),
   kpiQuickActions: (params) =>
     api.get("/admin/dashboard/kpi/quick-actions", { params }).then((r) => r.data.data),
+  // Full KPI bundle + Gemini narrative for the exportable PDF/XLSX report.
+  report: (params) =>
+    api.get("/admin/dashboard/kpi/report", { params }).then((r) => r.data.data),
 };
 
 export const adminCustomerApi = {

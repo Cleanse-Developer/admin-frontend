@@ -82,6 +82,8 @@ export default function NewsletterPage() {
   });
   const [campaignSaving, setCampaignSaving] = useState(false);
   const [campaignSendingId, setCampaignSendingId] = useState(null);
+  const [viewingCampaign, setViewingCampaign] = useState(null);
+  const [showRawHtml, setShowRawHtml] = useState(false);
 
   const fetchCampaigns = useCallback(async () => {
     setCampaignsLoading(true);
@@ -646,6 +648,13 @@ export default function NewsletterPage() {
                         )}
                       </div>
                       <div className="flex flex-col gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setViewingCampaign(c); setShowRawHtml(false); }}
+                          className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                        >
+                          View
+                        </button>
                         {(c.status === "draft" || c.status === "scheduled") && (
                           <>
                             <button
@@ -827,6 +836,88 @@ export default function NewsletterPage() {
             >
               {configSaving ? "Saving..." : "Save Config"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Campaign detail modal */}
+      {viewingCampaign && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8"
+          onClick={() => setViewingCampaign(null)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between gap-4 border-b border-zinc-100 p-5">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="text-base font-semibold text-zinc-900">
+                    {viewingCampaign.subject}
+                  </h3>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs ${
+                      viewingCampaign.status === "sent"
+                        ? "bg-green-50 text-green-700"
+                        : viewingCampaign.status === "sending"
+                          ? "bg-blue-50 text-blue-700"
+                          : viewingCampaign.status === "failed"
+                            ? "bg-red-50 text-red-700"
+                            : viewingCampaign.status === "scheduled"
+                              ? "bg-purple-50 text-purple-700"
+                              : "bg-zinc-100 text-zinc-600"
+                    }`}
+                  >
+                    {viewingCampaign.status}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-500">
+                  Created {new Date(viewingCampaign.createdAt).toLocaleString()}
+                  {viewingCampaign.sentAt &&
+                    ` · Sent ${new Date(viewingCampaign.sentAt).toLocaleString()}`}
+                </p>
+                {viewingCampaign.recipientCount > 0 && (
+                  <p className="text-xs text-zinc-500 mt-1">
+                    {viewingCampaign.successCount} / {viewingCampaign.recipientCount} delivered
+                    {viewingCampaign.failureCount > 0 &&
+                      ` (${viewingCampaign.failureCount} failed)`}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingCampaign(null)}
+                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                Close
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-zinc-500">Content</span>
+                <button
+                  type="button"
+                  onClick={() => setShowRawHtml((v) => !v)}
+                  className="text-xs font-medium text-zinc-600 hover:text-zinc-900"
+                >
+                  {showRawHtml ? "Show preview" : "Show HTML"}
+                </button>
+              </div>
+              {showRawHtml ? (
+                <pre className="max-h-[55vh] overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs text-zinc-800 whitespace-pre-wrap wrap-break-word">
+                  {viewingCampaign.htmlContent}
+                </pre>
+              ) : (
+                <div
+                  className="max-h-[55vh] overflow-auto rounded-lg border border-zinc-200 p-4 text-sm text-zinc-800"
+                  dangerouslySetInnerHTML={{ __html: viewingCampaign.htmlContent }}
+                />
+              )}
+            </div>
           </div>
         </div>
       )}

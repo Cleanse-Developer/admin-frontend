@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { toPng } from "html-to-image";
 import {
-  ChevronDownIcon,
   DownloadIcon,
   MixerHorizontalIcon,
   CheckIcon,
@@ -15,9 +15,18 @@ import {
   BarChartIcon,
 } from "@radix-ui/react-icons";
 import { adminDashboardApi } from "@/lib/endpoints";
+import { useToast } from "@/context/toast-context";
 import { AreaChart, DonutGauge, Sparkline, BarList } from "./_components/charts";
 import { normalizeSeries, normalizeProducts } from "./_components/data";
-import { exportExcel, exportCsv } from "./_components/export";
+import { buildReportPdf } from "./_components/report-pdf";
+import { buildReportXlsx } from "./_components/report-xlsx";
+import PeriodPicker from "./_components/period-picker";
+import {
+  DEFAULT_SELECTION,
+  buildRangeParams,
+  windowLabel,
+  comparisonLabel,
+} from "./_components/period";
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                            */
@@ -31,13 +40,6 @@ const statusColors = {
   cancelled: "bg-white text-zinc-500 border-zinc-300 line-through",
   returned: "bg-white text-zinc-500 border-zinc-300",
 };
-
-const PERIODS = [
-  { value: "today", label: "Today" },
-  { value: "week", label: "This Week" },
-  { value: "month", label: "This Month" },
-  { value: "year", label: "This Year" },
-];
 
 const STATUS_OPTIONS = [
   "all",
@@ -72,27 +74,6 @@ function fmtDate(d) {
     month: "short",
     year: "numeric",
   });
-}
-
-/* period → BFF range params. Backend derives the comparison (previous equal
-   window) itself, so we only send the current window + a sensible groupBy. */
-function rangeForPeriod(period) {
-  const now = new Date();
-  let start;
-  let groupBy = "day";
-  if (period === "today") {
-    start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  } else if (period === "week") {
-    start = new Date(now);
-    start.setDate(now.getDate() - 6);
-    start.setHours(0, 0, 0, 0);
-  } else if (period === "year") {
-    start = new Date(now.getFullYear(), 0, 1);
-    groupBy = "month";
-  } else {
-    start = new Date(now.getFullYear(), now.getMonth(), 1);
-  }
-  return { dateFrom: start.toISOString(), dateTo: now.toISOString(), groupBy };
 }
 
 /* pull deltaPct off a compare() object safely */
@@ -249,13 +230,18 @@ export default function DashboardPage() {
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const [period, setPeriod] = useState("month");
+  const [selection, setSelection] = useState(DEFAULT_SELECTION);
   const [kpisLoading, setKpisLoading] = useState(false);
   const [kpi, setKpi] = useState({}); // { summary, trend, profit, payments, refunds, locations, discounts, customers, ops }
   const [series, setSeries] = useState([]);
   const [topProducts, setTopProducts] = useState([]);
 
   const [statusFilter, setStatusFilter] = useState("all");
+  const [exporting, setExporting] = useState(false);
+
+  const { showToast } = useToast();
+  const salesChartRef = useRef(null);
+  const growthChartRef = useRef(null);
 
   /* period-independent widgets: recent orders, low stock, top sellers */
   const fetchOverview = useCallback(async () => {
@@ -276,9 +262,10 @@ export default function DashboardPage() {
 
   /* period-based KPIs — refetched on period change. Each endpoint is
      independent: one failing leaves the rest intact. */
-  const fetchKpis = useCallback(async (p) => {
+  const fetchKpis = useCallback(async (sel) => {
     setKpisLoading(true);
-    const params = rangeForPeriod(p);
+    const params = buildRangeParams(sel);
+    const seriesHint = params.groupBy === "month" ? "year" : "month";
     const calls = {
       summary: adminDashboardApi.kpiSummary(params),
       trend: adminDashboardApi.kpiSalesTrend(params),
@@ -297,7 +284,7 @@ export default function DashboardPage() {
       next[k] = settled[i].status === "fulfilled" ? settled[i].value : null;
     });
     setKpi(next);
-    setSeries(normalizeSeries(next.trend?.current || [], p));
+    setSeries(normalizeSeries(next.trend?.current || [], seriesHint));
     setKpisLoading(false);
   }, []);
 
@@ -306,8 +293,8 @@ export default function DashboardPage() {
   }, [fetchOverview]);
 
   useEffect(() => {
-    fetchKpis(period);
-  }, [period, fetchKpis]);
+    fetchKpis(selection);
+  }, [selection, fetchKpis]);
 
   const {
     totalCustomers = 0,
@@ -372,63 +359,59 @@ export default function DashboardPage() {
   );
 
   /* exports */
-  const orderRows = filteredOrders.map((o) => [
-    o.orderNumber || "",
-    o.user?.fullName || "—",
-    o.user?.email || "",
-    o.status || "",
-    Number(o.pricing?.total || 0),
-    o.createdAt ? fmtDate(o.createdAt) : "",
-  ]);
-  const orderCols = ["Order #", "Customer", "Email", "Status", "Total (₹)", "Date"];
-  const periodLabel = PERIODS.find((p) => p.value === period)?.label || "";
+  const periodLabel = windowLabel(selection.window);
+  const cmpLabel = comparisonLabel(selection);
 
-  function handleExportExcel() {
-    const sections = [
-      {
-        title: `Key Metrics — ${periodLabel}`,
-        columns: ["Metric", "Value", "vs prev"],
-        rows: [
-          ["Total Sales", periodRevenue, pct(delta(summary.totalSales))],
-          ["Orders", periodOrders, pct(delta(summary.orders))],
-          ["Net Profit", val(summary.netProfit), pct(delta(summary.netProfit))],
-          ["Net Margin %", val(summary.netProfitMargin), pct(delta(summary.netProfitMargin))],
-          ["Avg Order Value", val(summary.aov), pct(delta(summary.aov))],
-          ["GMV", val(summary.gmv), pct(delta(summary.gmv))],
-          ["Orders Today", ordersToday, ""],
-          ["Revenue Today", revenueToday, ""],
-        ],
-      },
-      {
-        title: `Sales Over Time — ${periodLabel}`,
-        columns: ["Period", "Revenue", "Orders"],
-        rows: series.map((s) => [s.label, s.revenue, s.orders]),
-      },
-    ];
-    if (profit) {
-      sections.push({
-        title: `P&L — ${periodLabel}`,
-        columns: ["Line", "Amount (₹)"],
-        rows: [
-          ["Revenue", profit.revenue],
-          ["COGS", -profit.cogs],
-          ["Gross Profit", profit.grossProfit],
-          ["Packaging", -profit.costs.packaging],
-          ["Shipping", -profit.costs.shipping],
-          ["Warehouse", -profit.costs.warehouse],
-          ["Gateway Fees", -profit.costs.gatewayFees],
-          ["Refunds", -profit.costs.refunds],
-          ["Net Profit", profit.netProfit],
-          ["Net Margin %", profit.netProfitMargin],
-        ],
+  async function captureChart(ref) {
+    if (!ref.current) return null;
+    try {
+      const dataUrl = await toPng(ref.current, {
+        pixelRatio: 2,
+        backgroundColor: "#ffffff",
       });
+      return { dataUrl, w: ref.current.offsetWidth, h: ref.current.offsetHeight };
+    } catch {
+      return null;
     }
-    sections.push({ title: "Recent Orders", columns: orderCols, rows: orderRows });
-    exportExcel(sections, `cleanse-dashboard-${period}.xls`);
   }
 
-  function handleExportCsv() {
-    exportCsv(orderCols, orderRows, `cleanse-orders-${period}.csv`);
+  async function handleExportReportPdf() {
+    if (exporting) return;
+    setExporting(true);
+    showToast("Generating report…", "info");
+    try {
+      const bundle = await adminDashboardApi.report(buildRangeParams(selection));
+      const [salesTrend, growth] = await Promise.all([
+        captureChart(salesChartRef),
+        captureChart(growthChartRef),
+      ]);
+      buildReportPdf({
+        bundle,
+        narrative: bundle.narrative,
+        periodLabel,
+        comparisonLabel: cmpLabel,
+        charts: { salesTrend, growth },
+      });
+      showToast("Report downloaded", "success");
+    } catch {
+      showToast("Failed to generate report", "error");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleExportXlsx() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const bundle = await adminDashboardApi.report(buildRangeParams(selection));
+      await buildReportXlsx({ bundle, periodLabel, comparisonLabel: cmpLabel });
+      showToast("Spreadsheet downloaded", "success");
+    } catch {
+      showToast("Failed to export data", "error");
+    } finally {
+      setExporting(false);
+    }
   }
 
   /* ------------------------------------------------------------- */
@@ -471,28 +454,11 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Menu
-            trigger={
-              <button className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-300">
-                {periodLabel}
-                <ChevronDownIcon className="h-4 w-4 text-zinc-400" />
-              </button>
-            }
-          >
-            {PERIODS.map((p) => (
-              <MenuItem
-                key={p.value}
-                active={p.value === period}
-                onSelect={() => setPeriod(p.value)}
-              >
-                {p.label}
-              </MenuItem>
-            ))}
-          </Menu>
+          <PeriodPicker value={selection} onChange={setSelection} />
 
           <Menu
             trigger={
-              <button className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-300">
+              <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 hover:border-zinc-300">
                 <MixerHorizontalIcon className="h-4 w-4 text-zinc-400" />
                 {statusFilter === "all" ? "Filter" : `Status: ${statusFilter}`}
               </button>
@@ -511,14 +477,21 @@ export default function DashboardPage() {
 
           <Menu
             trigger={
-              <button className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800">
-                <DownloadIcon className="h-4 w-4" />
-                Export
+              <button
+                disabled={exporting}
+                className="inline-flex h-10 items-center gap-2 rounded-lg bg-zinc-900 px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+              >
+                {exporting ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                ) : (
+                  <DownloadIcon className="h-4 w-4" />
+                )}
+                {exporting ? "Exporting…" : "Export"}
               </button>
             }
           >
-            <MenuItem onSelect={handleExportExcel}>Export to Excel (.xls)</MenuItem>
-            <MenuItem onSelect={handleExportCsv}>Export orders (.csv)</MenuItem>
+            <MenuItem onSelect={handleExportReportPdf}>Export Report (PDF)</MenuItem>
+            <MenuItem onSelect={handleExportXlsx}>Export Data (XLSX)</MenuItem>
           </Menu>
         </div>
       </div>
@@ -529,7 +502,7 @@ export default function DashboardPage() {
           dark
           label={`Total Sales · ${periodLabel}`}
           value={inr(periodRevenue)}
-          sub="vs prev period"
+          sub={cmpLabel || "no comparison"}
           trend={delta(summary.totalSales)}
           spark={revSpark}
           icon={<span className="text-sm font-semibold">₹</span>}
@@ -544,7 +517,7 @@ export default function DashboardPage() {
         <KpiCard
           label={`Orders · ${periodLabel}`}
           value={num(periodOrders)}
-          sub="vs prev period"
+          sub={cmpLabel || "no comparison"}
           trend={delta(summary.orders)}
           spark={ordSpark}
           icon={<ArchiveIcon className="h-4 w-4" />}
@@ -597,23 +570,25 @@ export default function DashboardPage() {
                   </p>
                 </div>
               </div>
-              <AreaChart
-                data={series}
-                height={300}
-                formatRevenue={inrShort}
-                formatOrders={num}
-              />
+              <div ref={salesChartRef}>
+                <AreaChart
+                  data={series}
+                  height={300}
+                  formatRevenue={inrShort}
+                  formatOrders={num}
+                />
+              </div>
             </>
           )}
         </Card>
 
         <Card title="Sales Growth">
-          <div className="flex flex-col items-center">
+          <div ref={growthChartRef} className="flex flex-col items-center">
             <div className="flex justify-center py-2">
               <DonutGauge percent={salesGrowth} />
             </div>
             <p className="mt-1 text-center text-xs text-zinc-500">
-              {periodLabel} revenue vs previous period
+              {periodLabel} revenue {cmpLabel || "(no comparison)"}
             </p>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3">

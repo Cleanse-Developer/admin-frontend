@@ -1,23 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { PlusIcon, TrashIcon, ReloadIcon } from "@radix-ui/react-icons";
+import { PlusIcon, ReloadIcon } from "@radix-ui/react-icons";
 import { adminSettingsApi, adminShiprocketApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
 import Toggle from "@/components/toggle";
 
 const DEFAULTS = {
-  discount_tier_config: {
-    enabled: true,
-    tiers: [
-      { threshold: 3500, type: "percent", percent: 15, label: "15% OFF" },
-      { threshold: 2000, type: "percent", percent: 10, label: "10% OFF" },
-      { threshold: 1200, type: "free_shipping", label: "Free Shipping" },
-      { threshold: 500, type: "percent", percent: 5, label: "5% OFF" },
-    ],
-  },
-  SHIPPING: { FREE_THRESHOLD: 1200, STANDARD_RATE: 99 },
-  GIFT_WRAP_COST: 99,
   LOYALTY_RATE: 0.1,
   REFERRAL_REWARD: 200,
   loyalty_config: {
@@ -50,14 +39,6 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [discountTiers, setDiscountTiers] = useState(
-    DEFAULTS.discount_tier_config.tiers
-  );
-  const [discountTiersEnabled, setDiscountTiersEnabled] = useState(
-    DEFAULTS.discount_tier_config.enabled
-  );
-  const [shipping, setShipping] = useState(DEFAULTS.SHIPPING);
-  const [giftWrapCost, setGiftWrapCost] = useState(DEFAULTS.GIFT_WRAP_COST);
   const [loyaltyRate, setLoyaltyRate] = useState(DEFAULTS.LOYALTY_RATE);
   const [referralReward, setReferralReward] = useState(DEFAULTS.REFERRAL_REWARD);
   const [loyaltyConfig, setLoyaltyConfig] = useState(DEFAULTS.loyalty_config);
@@ -68,17 +49,6 @@ export default function SettingsPage() {
     try {
       const data = await adminSettingsApi.get();
       if (data) {
-        const tierCfg = data.discount_tier_config;
-        const tiers =
-          tierCfg && Array.isArray(tierCfg.tiers) && tierCfg.tiers.length > 0
-            ? tierCfg.tiers
-            : DEFAULTS.discount_tier_config.tiers;
-        setDiscountTiers(
-          [...tiers].sort((a, b) => Number(b.threshold) - Number(a.threshold))
-        );
-        setDiscountTiersEnabled(tierCfg ? tierCfg.enabled !== false : true);
-        setShipping(data.SHIPPING ?? DEFAULTS.SHIPPING);
-        setGiftWrapCost(data.GIFT_WRAP_COST ?? DEFAULTS.GIFT_WRAP_COST);
         setLoyaltyRate(data.LOYALTY_RATE ?? DEFAULTS.LOYALTY_RATE);
         setReferralReward(data.REFERRAL_REWARD ?? DEFAULTS.REFERRAL_REWARD);
         setLoyaltyConfig({ ...DEFAULTS.loyalty_config, ...(data.loyalty_config || {}) });
@@ -96,60 +66,9 @@ export default function SettingsPage() {
   }, [fetchSettings]);
 
   const handleSave = async () => {
-    // Validate + normalize cart tiers before saving
-    const cleanTiers = discountTiers.map((t) => ({
-      threshold: Number(t.threshold),
-      type: t.type === "free_shipping" ? "free_shipping" : "percent",
-      percent: Number(t.percent),
-      label: (t.label || "").trim(),
-    }));
-    for (const t of cleanTiers) {
-      if (!(t.threshold > 0)) {
-        showToast("Each tier needs a threshold greater than 0", "error");
-        return;
-      }
-      if (!t.label) {
-        showToast("Each tier needs a label", "error");
-        return;
-      }
-      if (t.type === "percent" && !(t.percent > 0 && t.percent <= 100)) {
-        showToast("Percent tiers need a discount between 1 and 100", "error");
-        return;
-      }
-    }
-    if (cleanTiers.filter((t) => t.type === "free_shipping").length > 1) {
-      showToast("Only one Free Shipping tier is allowed", "error");
-      return;
-    }
-
     setSaving(true);
     try {
-      const sortedTiers = [...cleanTiers].sort(
-        (a, b) => b.threshold - a.threshold
-      );
       await adminSettingsApi.update({
-        discount_tier_config: {
-          enabled: !!discountTiersEnabled,
-          tiers: sortedTiers.map((t) =>
-            t.type === "free_shipping"
-              ? {
-                  threshold: t.threshold,
-                  type: "free_shipping",
-                  label: t.label,
-                }
-              : {
-                  threshold: t.threshold,
-                  type: "percent",
-                  percent: t.percent,
-                  label: t.label,
-                }
-          ),
-        },
-        SHIPPING: {
-          FREE_THRESHOLD: Number(shipping.FREE_THRESHOLD),
-          STANDARD_RATE: Number(shipping.STANDARD_RATE),
-        },
-        GIFT_WRAP_COST: Number(giftWrapCost),
         LOYALTY_RATE: Number(loyaltyRate),
         REFERRAL_REWARD: Number(referralReward),
         loyalty_config: {
@@ -173,7 +92,6 @@ export default function SettingsPage() {
           codePrefix: referralConfig.codePrefix || "CLEANSE-",
         },
       });
-      setDiscountTiers(sortedTiers);
       showToast("Settings saved successfully", "success");
     } catch {
       showToast("Failed to save settings", "error");
@@ -182,30 +100,13 @@ export default function SettingsPage() {
     }
   };
 
-  const updateTier = (index, field, value) => {
-    setDiscountTiers((prev) =>
-      prev.map((tier, i) => (i === index ? { ...tier, [field]: value } : tier))
-    );
-  };
-
-  const addTier = () => {
-    setDiscountTiers((prev) => [
-      ...prev,
-      { threshold: 0, type: "percent", percent: 0, label: "" },
-    ]);
-  };
-
-  const removeTier = (index) => {
-    setDiscountTiers((prev) => prev.filter((_, i) => i !== index));
-  };
-
   if (loading) {
     return (
       <div>
         <div className="mb-6">
           <h1 className="text-xl font-semibold text-zinc-900">Settings</h1>
           <p className="text-sm text-zinc-500 mt-0.5">
-            Manage pricing rules, shipping, and rewards
+            Manage pricing rules and rewards
           </p>
         </div>
         <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center text-zinc-400 text-sm">
@@ -221,170 +122,11 @@ export default function SettingsPage() {
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-zinc-900">Settings</h1>
         <p className="text-sm text-zinc-500 mt-0.5">
-          Manage pricing rules, shipping, and rewards
+          Manage pricing rules and rewards
         </p>
       </div>
 
       <div className="space-y-6">
-        {/* Section 1: Cart Tier Discounts */}
-        <div className="rounded-xl border border-zinc-200 bg-white p-5">
-          <div className="flex items-center justify-between mb-1">
-            <h2 className="text-base font-semibold text-zinc-900">
-              Cart Tier Discounts
-            </h2>
-            <div className="flex items-center gap-4">
-              <Toggle
-                checked={discountTiersEnabled}
-                onCheckedChange={setDiscountTiersEnabled}
-                label="Enabled"
-                size="sm"
-              />
-              <button
-                type="button"
-                onClick={addTier}
-                className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
-              >
-                <PlusIcon className="h-3.5 w-3.5" />
-                Add Tier
-              </button>
-            </div>
-          </div>
-          <p className="text-sm text-zinc-500 mb-4">
-            {discountTiersEnabled
-              ? "Spend-based rewards shown as the cart progress bar. Use one Free Shipping tier to set the free-shipping threshold."
-              : "Disabled — no tier discounts apply and the cart progress bar is hidden."}
-          </p>
-
-          {discountTiers.length === 0 ? (
-            <p className="text-sm text-zinc-400">
-              No discount tiers configured. Click "Add Tier" to create one.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-            <div
-              className={`space-y-3 min-w-[560px] ${
-                discountTiersEnabled ? "" : "opacity-60"
-              }`}
-            >
-              {/* Column headers */}
-              <div className="grid grid-cols-[1fr_1.1fr_1fr_1.2fr_40px] gap-3">
-                <label className="text-xs font-medium text-zinc-500">
-                  Threshold (&#8377;)
-                </label>
-                <label className="text-xs font-medium text-zinc-500">Type</label>
-                <label className="text-xs font-medium text-zinc-500">
-                  Discount (%)
-                </label>
-                <label className="text-xs font-medium text-zinc-500">Label</label>
-                <span />
-              </div>
-
-              {discountTiers.map((tier, index) => {
-                const isFreeShipping = tier.type === "free_shipping";
-                return (
-                  <div
-                    key={index}
-                    className="grid grid-cols-[1fr_1.1fr_1fr_1.2fr_40px] gap-3 items-center"
-                  >
-                    <input
-                      type="number"
-                      min="0"
-                      value={tier.threshold}
-                      onChange={(e) =>
-                        updateTier(index, "threshold", e.target.value)
-                      }
-                      placeholder="e.g. 3500"
-                      className={inputClass}
-                    />
-                    <select
-                      value={isFreeShipping ? "free_shipping" : "percent"}
-                      onChange={(e) => updateTier(index, "type", e.target.value)}
-                      className={inputClass}
-                    >
-                      <option value="percent">Percent off</option>
-                      <option value="free_shipping">Free shipping</option>
-                    </select>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={isFreeShipping ? "" : tier.percent ?? ""}
-                      onChange={(e) =>
-                        updateTier(index, "percent", e.target.value)
-                      }
-                      disabled={isFreeShipping}
-                      placeholder={isFreeShipping ? "—" : "e.g. 15"}
-                      className={`${inputClass} disabled:bg-zinc-50 disabled:text-zinc-300`}
-                    />
-                    <input
-                      type="text"
-                      value={tier.label}
-                      onChange={(e) => updateTier(index, "label", e.target.value)}
-                      placeholder={isFreeShipping ? "e.g. Free Shipping" : "e.g. 15% OFF"}
-                      className={inputClass}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeTier(index)}
-                      className="flex items-center justify-center rounded-lg p-2 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                      title="Remove tier"
-                    >
-                      <TrashIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            </div>
-          )}
-        </div>
-
-        {/* Section 2: Shipping */}
-        <div className="rounded-xl border border-zinc-200 bg-white p-5">
-          <h2 className="text-base font-semibold text-zinc-900 mb-4">Shipping</h2>
-          <div className="max-w-xs">
-            <label className="block text-xs font-medium text-zinc-500 mb-1.5">
-              Standard Shipping Rate (&#8377;)
-            </label>
-            <input
-              type="number"
-              min="0"
-              value={shipping.STANDARD_RATE}
-              onChange={(e) =>
-                setShipping((prev) => ({
-                  ...prev,
-                  STANDARD_RATE: e.target.value,
-                }))
-              }
-              placeholder="e.g. 99"
-              className={inputClass}
-            />
-          </div>
-          <p className="mt-2 text-xs text-zinc-400">
-            The free-shipping threshold is set as a Free Shipping tier under Cart
-            Tier Discounts above. Per-region rates/thresholds are managed in
-            Shipping Zones.
-          </p>
-        </div>
-
-        {/* Section 3: Gift Wrap */}
-        <div className="rounded-xl border border-zinc-200 bg-white p-5">
-          <h2 className="text-base font-semibold text-zinc-900 mb-4">Gift Wrap</h2>
-          <div className="max-w-xs">
-            <label className="block text-xs font-medium text-zinc-500 mb-1.5">
-              Gift Wrap Cost (&#8377;)
-            </label>
-            <input
-              type="number"
-              min="0"
-              value={giftWrapCost}
-              onChange={(e) => setGiftWrapCost(e.target.value)}
-              placeholder="e.g. 99"
-              className={inputClass}
-            />
-          </div>
-        </div>
-
         {/* Section 4: Loyalty & Referral */}
         <div className="rounded-xl border border-zinc-200 bg-white p-5">
           <h2 className="text-base font-semibold text-zinc-900 mb-4">
