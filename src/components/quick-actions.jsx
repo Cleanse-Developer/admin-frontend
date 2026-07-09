@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Plus,
   Package,
   Boxes,
   Newspaper,
@@ -65,7 +64,7 @@ export default function QuickActions() {
       {/* backdrop to catch outside clicks */}
       {open && (
         <div
-          className="fixed inset-0 z-30 bg-black/10"
+          className="fixed inset-0 z-30"
           onClick={() => setOpen(false)}
         />
       )}
@@ -114,11 +113,14 @@ export default function QuickActions() {
           aria-expanded={open}
           className="relative flex h-14 w-14 items-center justify-center rounded-full bg-zinc-900 text-white shadow-lg transition-all hover:bg-zinc-800 active:scale-95"
         >
-          <Plus
-            className={`h-6 w-6 transition-transform duration-300 ${
-              open ? "rotate-[135deg]" : "rotate-0"
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/cleanse-monogram.svg"
+            alt=""
+            aria-hidden="true"
+            className={`h-7 w-7 brightness-0 invert transition-transform duration-300 ${
+              open ? "rotate-135" : "rotate-0"
             }`}
-            strokeWidth={2}
           />
           {!open && attention > 0 && (
             <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[10px] font-semibold text-zinc-900 ring-2 ring-zinc-900">

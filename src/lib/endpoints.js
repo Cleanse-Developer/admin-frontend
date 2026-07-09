@@ -342,6 +342,58 @@ export const adminReferralApi = {
     api.post(`/admin/referrals/${id}/reverse`).then((r) => r.data.data),
 };
 
+export const adminPromoterApi = {
+  list: (params) =>
+    api.get("/admin/promoters", { params }).then((r) => r.data.data),
+  stats: () => api.get("/admin/promoters/stats").then((r) => r.data.data),
+  get: (id) => api.get(`/admin/promoters/${id}`).then((r) => r.data.data),
+  create: (data) =>
+    api.post("/admin/promoters", data).then((r) => r.data.data),
+  update: (id, data) =>
+    api.patch(`/admin/promoters/${id}`, data).then((r) => r.data.data),
+  remove: (id) => api.delete(`/admin/promoters/${id}`).then((r) => r.data.data),
+  // Links
+  createLink: (id, data) =>
+    api.post(`/admin/promoters/${id}/links`, data).then((r) => r.data.data),
+  updateLink: (id, linkId, data) =>
+    api
+      .patch(`/admin/promoters/${id}/links/${linkId}`, data)
+      .then((r) => r.data.data),
+  // Codes
+  createCode: (id, data) =>
+    api.post(`/admin/promoters/${id}/codes`, data).then((r) => r.data.data),
+  attachCode: (id, code) =>
+    api.post(`/admin/promoters/${id}/codes/attach`, { code }).then((r) => r.data.data),
+  unbindCode: (id, code) =>
+    api
+      .delete(`/admin/promoters/${id}/codes/${encodeURIComponent(code)}`)
+      .then((r) => r.data.data),
+  // Commissions
+  commissions: (id, params) =>
+    api
+      .get(`/admin/promoters/${id}/commissions`, { params })
+      .then((r) => r.data.data),
+  reverseCommission: (id, ledgerId) =>
+    api
+      .post(`/admin/promoters/${id}/commissions/${ledgerId}/reverse`)
+      .then((r) => r.data.data),
+  analytics: (id, params) =>
+    api
+      .get(`/admin/promoters/${id}/analytics`, { params })
+      .then((r) => r.data.data),
+  // Settlements
+  settlements: (id) =>
+    api.get(`/admin/promoters/${id}/settlements`).then((r) => r.data.data),
+  createSettlement: (id, data) =>
+    api
+      .post(`/admin/promoters/${id}/settlements`, data)
+      .then((r) => r.data.data),
+  finalizeSettlement: (id, sid, data) =>
+    api
+      .post(`/admin/promoters/${id}/settlements/${sid}/finalize`, data)
+      .then((r) => r.data.data),
+};
+
 export const adminLoyaltyApi = {
   listUsers: (params) =>
     api.get("/admin/loyalty/users", { params }).then((r) => r.data.data),

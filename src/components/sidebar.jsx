@@ -19,6 +19,7 @@ import {
   Disc3,
   Gem,
   Share2,
+  Megaphone,
   Star,
   Mail,
   Truck,
@@ -45,6 +46,7 @@ const NAV_ITEMS = [
   { href: "/spin-wheel", label: "Spin Wheel", icon: Disc3 },
   { href: "/loyalty", label: "Loyalty", icon: Gem },
   { href: "/referrals", label: "Referrals", icon: Share2 },
+  { href: "/promoters", label: "Promoters", icon: Megaphone },
   { href: "/reviews", label: "Reviews", icon: Star },
   { href: "/newsletter", label: "Newsletter", icon: Mail },
   { href: "/shipping", label: "Shipping", icon: Truck },
@@ -55,6 +57,15 @@ const NAV_ITEMS = [
 export default function Sidebar({ open, onClose }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [tip, setTip] = useState(null); // { label, top, left }
+
+  function showTip(e, label) {
+    // desktop collapsed only — labels already visible otherwise
+    if (!collapsed || window.innerWidth < 1024) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    setTip({ label, top: r.top + r.height / 2, left: r.right + 12 });
+  }
+  const hideTip = () => setTip(null);
 
   // restore persisted desktop collapse state
   useEffect(() => {
@@ -146,7 +157,8 @@ export default function Sidebar({ open, onClose }) {
         </button>
 
         <nav
-          className={`flex-1 overflow-y-auto py-4 ${
+          onScroll={hideTip}
+          className={`flex-1 overflow-y-auto overflow-x-hidden py-4 ${
             collapsed ? "px-2 lg:px-2.5" : "px-3"
           }`}
         >
@@ -154,10 +166,12 @@ export default function Sidebar({ open, onClose }) {
             {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
               const active = pathname.startsWith(href);
               return (
-                <li key={href} className="group relative">
+                <li key={href} className="relative">
                   <Link
                     href={href}
                     onClick={onClose}
+                    onMouseEnter={(e) => showTip(e, label)}
+                    onMouseLeave={hideTip}
                     className={`flex items-center rounded-lg py-2 text-sm transition-colors ${
                       collapsed
                         ? "gap-3 px-3 lg:justify-center lg:gap-0 lg:px-0"
@@ -171,19 +185,22 @@ export default function Sidebar({ open, onClose }) {
                     <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} />
                     <span className={collapsed ? "lg:hidden" : ""}>{label}</span>
                   </Link>
-
-                  {/* Tooltip — desktop, collapsed only */}
-                  {collapsed && (
-                    <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 lg:block">
-                      {label}
-                    </span>
-                  )}
                 </li>
               );
             })}
           </ul>
         </nav>
       </aside>
+
+      {/* Collapsed-sidebar hover tooltip — fixed so it escapes the nav's overflow clip */}
+      {tip && (
+        <div
+          className="pointer-events-none fixed z-60 -translate-y-1/2 whitespace-nowrap rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white shadow-md"
+          style={{ top: tip.top, left: tip.left }}
+        >
+          {tip.label}
+        </div>
+      )}
     </>
   );
 }
