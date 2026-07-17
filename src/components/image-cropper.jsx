@@ -35,6 +35,44 @@ function RotateRightIcon({ className }) {
   );
 }
 
+function ResetIcon({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M3 12a9 9 0 1 1 3 6.7M3 12v-4M3 12h4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// Keep rotation in (-180, 180] so the ±90 buttons and the slider agree: three
+// right-clicks land on -90, not an off-slider 270.
+function normalizeRotation(deg) {
+  const wrapped = ((deg % 360) + 360) % 360;
+  return wrapped > 180 ? wrapped - 360 : wrapped;
+}
+
+function gcd(a, b) {
+  return b ? gcd(b, a % b) : a;
+}
+
+// Exact w:h when it reduces to something readable, decimal otherwise —
+// a 1439:1919 label helps nobody.
+function formatRatio(width, height) {
+  if (!width || !height) return "—";
+  const w = Math.round(width);
+  const h = Math.round(height);
+  const d = gcd(w, h);
+  const rw = w / d;
+  const rh = h / d;
+  if (rw <= 50 && rh <= 50) return `${rw}:${rh}`;
+  return `${(w / h).toFixed(2)}:1`;
+}
+
 export default function ImageCropper({
   file,
   onCropped,
@@ -51,8 +89,11 @@ export default function ImageCropper({
   const [rotation, setRotation] = useState(0);
   const [isCropping, setIsCropping] = useState(false);
   const croppedPixelsRef = useRef(null);
+  // Mirrored into state purely so the readout can show the live output size;
+  // the ref stays the source of truth for the actual crop.
+  const [croppedPixels, setCroppedPixels] = useState(null);
   const [imageSrc] = useState(() => URL.createObjectURL(file));
-  const [naturalAspect, setNaturalAspect] = useState(null);
+  const [naturalSize, setNaturalSize] = useState(null);
   // The currently selected ratio (starts at the caller's default `aspect`).
   const [selectedAspect, setSelectedAspect] = useState(aspect);
 
@@ -60,15 +101,20 @@ export default function ImageCropper({
   // while zoom/pan/rotate still work.
   useEffect(() => {
     const im = new Image();
-    im.onload = () => setNaturalAspect(im.naturalWidth / im.naturalHeight);
+    im.onload = () =>
+      setNaturalSize({ width: im.naturalWidth, height: im.naturalHeight });
     im.src = imageSrc;
   }, [imageSrc]);
 
+  const naturalAspect = naturalSize
+    ? naturalSize.width / naturalSize.height
+    : null;
   const freeCrop = selectedAspect === null;
   const effectiveAspect = freeCrop ? naturalAspect || 1 : selectedAspect;
 
-  const onCropComplete = useCallback((_, croppedPixels) => {
-    croppedPixelsRef.current = croppedPixels;
+  const onCropComplete = useCallback((_, cropped) => {
+    croppedPixelsRef.current = cropped;
+    setCroppedPixels(cropped);
   }, []);
 
   async function handleConfirm() {
@@ -145,6 +191,46 @@ export default function ImageCropper({
             />
           </div>
 
+          {/* Live readout */}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-zinc-800 bg-zinc-900 px-4 py-2 text-[11px] text-zinc-400">
+            <span>
+              Source{" "}
+              <span className="font-medium text-zinc-200">
+                {naturalSize
+                  ? `${naturalSize.width} × ${naturalSize.height}`
+                  : "—"}
+              </span>
+            </span>
+            <span>
+              Output{" "}
+              <span className="font-medium text-zinc-200">
+                {croppedPixels
+                  ? `${Math.round(croppedPixels.width)} × ${Math.round(
+                      croppedPixels.height
+                    )}`
+                  : "—"}
+              </span>
+            </span>
+            <span>
+              Ratio{" "}
+              <span className="font-medium text-zinc-200">
+                {croppedPixels
+                  ? formatRatio(croppedPixels.width, croppedPixels.height)
+                  : "—"}
+              </span>
+            </span>
+            <span>
+              Rotation{" "}
+              <span className="font-medium text-zinc-200">{rotation}°</span>
+            </span>
+            <span>
+              Zoom{" "}
+              <span className="font-medium text-zinc-200">
+                {zoom.toFixed(2)}×
+              </span>
+            </span>
+          </div>
+
           {/* Footer */}
           <div className="flex flex-col gap-3 bg-zinc-900 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-4">
@@ -185,7 +271,7 @@ export default function ImageCropper({
                 <label className="text-xs text-zinc-400">Rotate</label>
                 <button
                   type="button"
-                  onClick={() => setRotation((r) => r - 90)}
+                  onClick={() => setRotation((r) => normalizeRotation(r - 90))}
                   title="Rotate left 90°"
                   className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white"
                 >
@@ -193,7 +279,7 @@ export default function ImageCropper({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setRotation((r) => r + 90)}
+                  onClick={() => setRotation((r) => normalizeRotation(r + 90))}
                   title="Rotate right 90°"
                   className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white"
                 >
@@ -208,6 +294,16 @@ export default function ImageCropper({
                   onChange={(e) => setRotation(Number(e.target.value))}
                   className="h-1 w-32 max-w-[40vw] cursor-pointer accent-white"
                 />
+                <button
+                  type="button"
+                  onClick={() => setRotation(0)}
+                  disabled={rotation === 0}
+                  title="Reset rotation to 0° (keeps crop and zoom)"
+                  className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-white disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-300"
+                >
+                  <ResetIcon className="h-3.5 w-3.5" />
+                  Reset
+                </button>
               </div>
             </div>
             <div className="flex items-center justify-end gap-2">
