@@ -9,6 +9,8 @@ import {
   TrashIcon,
   DotsVerticalIcon,
   CrossCircledIcon,
+  StarIcon,
+  StarFilledIcon,
 } from "@radix-ui/react-icons";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
@@ -37,6 +39,7 @@ const COLUMNS = [
   { key: "products", label: "Products", width: "90px" },
   { key: "discount", label: "Discount", width: "120px" },
   { key: "minProducts", label: "Min Qty", width: "80px", className: "hidden sm:table-cell" },
+  { key: "featured", label: "Homepage", width: "110px" },
   { key: "status", label: "Status", width: "90px" },
   { key: "actions", label: "", width: "50px" },
 ];
@@ -150,6 +153,33 @@ export default function BundlesPage() {
     }
   }
 
+  // The backend guarantees a single featured bundle, so on success every other
+  // row has to drop the flag locally too — flipping just the clicked row would
+  // briefly render two "Featured" badges until the next refetch.
+  async function toggleFeatured(bundle) {
+    const next = !bundle.isFeatured;
+    try {
+      await adminBundleApi.update(bundle._id, { isFeatured: next });
+      setBundles((prev) =>
+        prev.map((b) => ({
+          ...b,
+          isFeatured: next ? b._id === bundle._id : b.isFeatured && b._id !== bundle._id,
+        }))
+      );
+      showToast(
+        next
+          ? `"${bundle.name}" is now featured on the homepage`
+          : `"${bundle.name}" removed from the homepage`,
+        "success"
+      );
+    } catch (err) {
+      showToast(
+        err.response?.data?.message || "Failed to update bundle",
+        "error"
+      );
+    }
+  }
+
   async function bulkAction(action) {
     const ids = Array.from(selected);
     try {
@@ -216,6 +246,36 @@ export default function BundlesPage() {
         </td>
         <td className="hidden px-4 py-3 sm:table-cell">
           <span className="text-sm text-zinc-700">{bundle.minProducts}</span>
+        </td>
+        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => toggleFeatured(bundle)}
+            disabled={!bundle.isActive && !bundle.isFeatured}
+            title={
+              !bundle.isActive && !bundle.isFeatured
+                ? "Activate this bundle before featuring it"
+                : bundle.isFeatured
+                  ? "Remove from homepage"
+                  : "Feature on homepage"
+            }
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+              bundle.isFeatured
+                ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-400"
+            }`}
+          >
+            {bundle.isFeatured ? (
+              <>
+                <StarFilledIcon className="h-3.5 w-3.5" />
+                Featured
+              </>
+            ) : (
+              <>
+                <StarIcon className="h-3.5 w-3.5" />
+                Feature
+              </>
+            )}
+          </button>
         </td>
         <td className="px-4 py-3">
           <StatusBadge active={bundle.isActive} />

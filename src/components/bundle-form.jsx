@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import * as Select from "@radix-ui/react-select";
 import * as Switch from "@radix-ui/react-switch";
@@ -30,7 +30,9 @@ const INITIAL_FORM = {
   discountType: "percentage",
   discountValue: "",
   minProducts: "3",
+  ribbonText: "",
   isActive: true,
+  isFeatured: false,
   priority: "0",
 };
 
@@ -44,7 +46,9 @@ function initForm(d) {
     discountType: d.discountType || "percentage",
     discountValue: d.discountValue ?? "",
     minProducts: d.minProducts ?? "3",
+    ribbonText: d.ribbonText || "",
     isActive: d.isActive ?? true,
+    isFeatured: d.isFeatured ?? false,
     priority: d.priority ?? "0",
   };
 }
@@ -76,6 +80,7 @@ export default function BundleForm({ initialData, onSubmit, isSubmitting }) {
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const searchBoxRef = useRef(null);
 
   const debouncedProductSearch = useDebounce(productSearch, 300);
 
@@ -114,6 +119,19 @@ export default function BundleForm({ initialData, onSubmit, isSubmitting }) {
       cancelled = true;
     };
   }, [debouncedProductSearch]);
+
+  /* Dismiss the dropdown on any outside press. This replaces a full-viewport
+     overlay div, which closed the dropdown by absorbing the click itself — so
+     the press that should have hit a remove button did nothing but dismiss.
+     A listener lets the same press reach its real target. */
+  useEffect(() => {
+    if (!showSearch) return;
+    const onPointerDown = (e) => {
+      if (!searchBoxRef.current?.contains(e.target)) setShowSearch(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [showSearch]);
 
   const setField = useCallback((name, value) => {
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -163,6 +181,11 @@ export default function BundleForm({ initialData, onSubmit, isSubmitting }) {
     if (form.minProducts === "" || Number(form.minProducts) < 2)
       e.minProducts = "Minimum 2";
 
+    // Mirrors the backend rule: the storefront only reads active bundles, so a
+    // featured-but-inactive bundle would blank the homepage section.
+    if (form.isFeatured && !form.isActive)
+      e.isFeatured = "Only an active bundle can be featured";
+
     return e;
   }
 
@@ -175,9 +198,11 @@ export default function BundleForm({ initialData, onSubmit, isSubmitting }) {
       discountType: form.discountType,
       discountValue: Number(form.discountValue),
       minProducts: Number(form.minProducts),
+      ribbonText: form.ribbonText.trim(),
       products: selectedProducts.map((p) => p._id),
       displayOnProducts: selectedProducts.map((p) => p._id),
       isActive: form.isActive,
+      isFeatured: form.isFeatured,
       priority: Number(form.priority) || 0,
     };
   }
@@ -202,6 +227,11 @@ export default function BundleForm({ initialData, onSubmit, isSubmitting }) {
     }`;
 
   const selectedIds = new Set(selectedProducts.map((p) => p._id));
+
+  /* Focus alone isn't enough to show the list — there has to be a query or
+     something to list. */
+  const isDropdownOpen =
+    showSearch && (!!productSearch.trim() || searchResults.length > 0);
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
@@ -389,7 +419,7 @@ export default function BundleForm({ initialData, onSubmit, isSubmitting }) {
         </p>
 
         {/* Search */}
-        <div className="relative mt-4">
+        <div className="relative mt-4" ref={searchBoxRef}>
           <div className="relative">
             <MagnifyingGlassIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
             <input
@@ -406,7 +436,7 @@ export default function BundleForm({ initialData, onSubmit, isSubmitting }) {
           </div>
 
           {/* Search dropdown */}
-          {showSearch && (productSearch.trim() || searchResults.length > 0) && (
+          {isDropdownOpen && (
             <div className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-zinc-200 bg-white shadow-lg">
               {searchLoading ? (
                 <div className="px-4 py-3 text-sm text-zinc-400">Searching...</div>
@@ -461,14 +491,6 @@ export default function BundleForm({ initialData, onSubmit, isSubmitting }) {
           )}
         </div>
 
-        {/* Click-away handler */}
-        {showSearch && (
-          <div
-            className="fixed inset-0 z-10"
-            onClick={() => setShowSearch(false)}
-          />
-        )}
-
         {/* Selected products */}
         {errors.products && (
           <span className="mt-2 block text-xs text-red-600">{errors.products}</span>
@@ -516,6 +538,63 @@ export default function BundleForm({ initialData, onSubmit, isSubmitting }) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Homepage */}
+      <div className="rounded-lg border border-zinc-200 bg-white p-6">
+        <h2 className="text-base font-semibold text-zinc-900">Homepage</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          The storefront homepage shows one bundle. Featuring this one replaces
+          whichever bundle is currently featured.
+        </p>
+
+        <div className="mt-4 flex flex-col gap-4">
+          {/* Feature toggle */}
+          <div className="flex flex-col gap-1.5">
+            <label className="flex items-center gap-2 text-sm text-zinc-700">
+              <Switch.Root
+                checked={form.isFeatured}
+                onCheckedChange={(val) => setField("isFeatured", val)}
+                className="h-5 w-9 rounded-full bg-zinc-200 transition-colors data-[state=checked]:bg-zinc-900"
+              >
+                <Switch.Thumb className="block h-4 w-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-[18px]" />
+              </Switch.Root>
+              Feature on homepage
+            </label>
+            {errors.isFeatured && (
+              <span className="text-xs text-red-600">{errors.isFeatured}</span>
+            )}
+          </div>
+
+          {/* Ribbon text */}
+          <div className="flex flex-col gap-1.5">
+            <label className="flex items-center justify-between text-sm font-medium text-zinc-700">
+              <span>Ribbon Text</span>
+              <span
+                className={`text-xs font-normal ${
+                  form.ribbonText.length > 22 ? "text-amber-600" : "text-zinc-400"
+                }`}
+              >
+                {form.ribbonText.length}/40
+              </span>
+            </label>
+            <input
+              type="text"
+              value={form.ribbonText}
+              onChange={(e) => setField("ribbonText", e.target.value)}
+              maxLength={40}
+              className={inputClass("ribbonText")}
+              placeholder={`e.g. "Save ${form.discountValue || "15"}${
+                form.discountType === "percentage" ? "%" : " Rs."
+              }"`}
+            />
+            <span className="text-xs text-zinc-400">
+              The diagonal banner on the bundle. Leave empty to auto-generate
+              from the discount. Keep it under ~22 characters — the ribbon is a
+              fixed-width strip and longer copy gets cut off.
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Status */}

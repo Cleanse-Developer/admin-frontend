@@ -17,7 +17,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 import { adminProductApi } from "@/lib/endpoints";
 import { useDebounce } from "@/lib/use-debounce";
-import { formatPrice } from "@/lib/format";
+import { formatPrice, effectivePrice } from "@/lib/format";
 import { useToast } from "@/context/toast-context";
 
 import DataTable from "@/components/data-table";
@@ -289,9 +289,9 @@ export default function ProductsPage() {
         </td>
         <td className="px-4 py-3">
           <div className="font-medium text-zinc-900">
-            {formatPrice(product.price)}
+            {formatPrice(effectivePrice(product))}
           </div>
-          {product.compareAtPrice != null && product.compareAtPrice !== product.price && (
+          {product.compareAtPrice != null && product.compareAtPrice > effectivePrice(product) && (
             <div className="text-xs text-zinc-400 line-through">
               {formatPrice(product.compareAtPrice)}
             </div>

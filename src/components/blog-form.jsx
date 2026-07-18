@@ -58,6 +58,7 @@ const INITIAL_FORM = {
   title: "",
   category: "Hair Care",
   excerpt: "",
+  summary: "",
   content: [""],
   readTime: "",
   authorId: "",
@@ -89,6 +90,7 @@ export default function BlogForm({ initialData, onSubmit, isSubmitting }) {
       title: initialData.title || "",
       category: initialData.category || "Hair Care",
       excerpt: initialData.excerpt || "",
+      summary: initialData.summary || "",
       content:
         initialData.content?.length > 0 ? initialData.content : [""],
       readTime: initialData.readTime || "",
@@ -132,6 +134,7 @@ export default function BlogForm({ initialData, onSubmit, isSubmitting }) {
     fd.append("title", form.title.trim());
     fd.append("category", form.category);
     fd.append("excerpt", form.excerpt.trim());
+    fd.append("summary", form.summary.trim());
     fd.append("content", JSON.stringify(form.content.filter((p) => p.trim())));
     if (form.readTime) fd.append("readTime", form.readTime);
     if (form.authorId) fd.append("authorId", form.authorId);
@@ -322,9 +325,26 @@ export default function BlogForm({ initialData, onSubmit, isSubmitting }) {
               value={form.excerpt}
               onChange={(e) => setField("excerpt", e.target.value)}
               className={inputClass("excerpt")}
-              placeholder="Short summary of the blog post"
+              placeholder="Short teaser shown on blog list cards"
             />
             {errors.excerpt && <span className="text-xs text-red-600">{errors.excerpt}</span>}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="flex items-center justify-between text-sm font-medium text-zinc-700">
+              <span>Summary</span>
+              <span className="text-xs font-normal text-zinc-400">
+                {form.summary.length}/1000 · optional
+              </span>
+            </label>
+            <textarea
+              rows={3}
+              value={form.summary}
+              onChange={(e) => setField("summary", e.target.value)}
+              maxLength={1000}
+              className={inputClass("summary")}
+              placeholder="Optional summary shown as a highlighted section on the article page. Leave blank to hide it."
+            />
           </div>
         </div>
       </div>

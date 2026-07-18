@@ -9,6 +9,7 @@ export default function CmsFooterEditor({ data, onChange }) {
   const update = (field, value) => onChange({ ...data, [field]: value });
 
   const navLinks = data.navigationLinks || [];
+  const supportLinks = data.supportLinks || [];
   const socialLinks = data.socialLinks || {};
   const contact = data.contact || {};
   const addressLines = contact.addressLines || [];
@@ -45,6 +46,23 @@ export default function CmsFooterEditor({ data, onChange }) {
     update(
       "navigationLinks",
       navLinks.filter((_, i) => i !== index)
+    );
+  };
+
+  const updateSupportLink = (index, field, value) => {
+    const links = [...supportLinks];
+    links[index] = { ...links[index], [field]: value };
+    update("supportLinks", links);
+  };
+
+  const addSupportLink = () => {
+    update("supportLinks", [...supportLinks, { label: "", href: "" }]);
+  };
+
+  const removeSupportLink = (index) => {
+    update(
+      "supportLinks",
+      supportLinks.filter((_, i) => i !== index)
     );
   };
 
@@ -89,6 +107,54 @@ export default function CmsFooterEditor({ data, onChange }) {
               <button
                 type="button"
                 onClick={() => removeNavLink(i)}
+                className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+              >
+                <TrashIcon className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Support / Dropdown Links */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs font-medium text-zinc-500">
+            Footer Support Links
+          </label>
+          <button
+            type="button"
+            onClick={addSupportLink}
+            className="flex items-center gap-1 rounded-lg border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
+          >
+            <PlusIcon className="h-3 w-3" />
+            Add Link
+          </button>
+        </div>
+        <p className="text-xs text-zinc-400 mb-2">
+          The footer &quot;Support&quot; column. Edit where Shipping and Returns
+          point; their page content is edited in the sections below.
+        </p>
+        <div className="space-y-2">
+          {supportLinks.map((link, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                type="text"
+                value={link.label || ""}
+                onChange={(e) => updateSupportLink(i, "label", e.target.value)}
+                placeholder="Label (e.g. Shipping)"
+                className={inputClass}
+              />
+              <input
+                type="text"
+                value={link.href || ""}
+                onChange={(e) => updateSupportLink(i, "href", e.target.value)}
+                placeholder="URL (e.g. /shipping)"
+                className={inputClass}
+              />
+              <button
+                type="button"
+                onClick={() => removeSupportLink(i)}
                 className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
               >
                 <TrashIcon className="h-3.5 w-3.5" />
