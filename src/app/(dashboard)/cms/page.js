@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { adminCmsApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
-import { LOCALES, DEFAULT_LOCALE, localeKey } from "@/lib/locales";
 
 import CmsPromoBarEditor from "@/components/cms/cms-promo-bar-editor";
 import CmsHeroEditor from "@/components/cms/cms-hero-editor";
@@ -68,65 +67,47 @@ const SECTIONS = [
   { key: "cmsPrivacy", label: "Privacy Policy", Component: CmsLegalEditor },
 ];
 
-// State-map key: one slot per (section, locale) so locales never collide.
-const cacheKey = (tab, locale) => `${tab}::${locale}`;
-
 export default function CmsPage() {
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState(SECTIONS[0].key);
-  const [locale, setLocale] = useState(DEFAULT_LOCALE);
   const [sectionData, setSectionData] = useState({});
   const [loadingKeys, setLoadingKeys] = useState({});
   const [savingKey, setSavingKey] = useState(null);
 
   const loadedKeysRef = useRef(new Set());
 
-  // Load the active (tab, locale) slot when either changes.
+  // Load active tab's data when tab changes
   useEffect(() => {
     // Self-managed tabs handle their own data fetching/saving.
     if (SECTIONS.find((s) => s.key === activeTab)?.selfManaged) return;
+    if (loadedKeysRef.current.has(activeTab)) return;
+    loadedKeysRef.current.add(activeTab);
 
-    const ck = cacheKey(activeTab, locale);
-    if (loadedKeysRef.current.has(ck)) return;
-    loadedKeysRef.current.add(ck);
-
-    const backendKey = localeKey(activeTab, locale);
-    setLoadingKeys((prev) => ({ ...prev, [ck]: true }));
+    setLoadingKeys((prev) => ({ ...prev, [activeTab]: true }));
     adminCmsApi
-      .getSection(backendKey)
-      .then(async (data) => {
-        const isEmpty =
-          !data || (typeof data === "object" && Object.keys(data).length === 0);
-        // Translate-in-place: a not-yet-authored non-English locale starts from
-        // the English content so the admin edits copy in place (images/refs kept).
-        // Storefront still falls back to English per-field, so a saved partial is safe.
-        const seeded =
-          locale !== DEFAULT_LOCALE && isEmpty
-            ? await adminCmsApi.getSection(activeTab).catch(() => ({}))
-            : data;
-        setSectionData((prev) => ({ ...prev, [ck]: seeded || {} }));
+      .getSection(activeTab)
+      .then((data) => {
+        setSectionData((prev) => ({ ...prev, [activeTab]: data || {} }));
       })
       .catch(() => {
-        showToast(`Failed to load ${backendKey}`, "error");
-        setSectionData((prev) => ({ ...prev, [ck]: {} }));
+        showToast(`Failed to load ${activeTab}`, "error");
+        setSectionData((prev) => ({ ...prev, [activeTab]: {} }));
       })
       .finally(() => {
-        setLoadingKeys((prev) => ({ ...prev, [ck]: false }));
+        setLoadingKeys((prev) => ({ ...prev, [activeTab]: false }));
       });
-  }, [activeTab, locale, showToast]);
+  }, [activeTab, showToast]);
 
-  const handleSave = async (tab) => {
-    const ck = cacheKey(tab, locale);
-    const backendKey = localeKey(tab, locale);
-    setSavingKey(ck);
+  const handleSave = async (key) => {
+    setSavingKey(key);
     try {
-      const payload = { ...sectionData[ck] };
+      const payload = { ...sectionData[key] };
       // Strip selectedProducts (frontend-only) before saving
       delete payload.selectedProducts;
       delete payload.featuredProducts;
 
-      const updated = await adminCmsApi.updateSection(backendKey, payload);
-      setSectionData((prev) => ({ ...prev, [ck]: updated }));
+      const updated = await adminCmsApi.updateSection(key, payload);
+      setSectionData((prev) => ({ ...prev, [key]: updated }));
       showToast("Section saved successfully", "success");
     } catch {
       showToast("Failed to save section", "error");
@@ -135,52 +116,19 @@ export default function CmsPage() {
     }
   };
 
-  const handleChange = (tab, newData) => {
-    setSectionData((prev) => ({ ...prev, [cacheKey(tab, locale)]: newData }));
+  const handleChange = (key, newData) => {
+    setSectionData((prev) => ({ ...prev, [key]: newData }));
   };
-
-  const isNonDefault = locale !== DEFAULT_LOCALE;
 
   return (
     <div>
       {/* Header */}
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-zinc-900">Homepage CMS</h1>
-          <p className="text-sm text-zinc-500 mt-0.5">
-            Manage the content of your storefront homepage sections
-          </p>
-        </div>
-        {/* Content language toggle. English is the base; other languages overlay
-            it and fall back to English per-field on the storefront. */}
-        {LOCALES.length > 1 && (
-          <div className="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-100 p-1">
-            {LOCALES.map((l) => (
-              <button
-                key={l.code}
-                type="button"
-                onClick={() => setLocale(l.code)}
-                title={l.name}
-                className={`rounded-md px-2.5 py-1 text-sm font-medium transition-colors ${
-                  locale === l.code
-                    ? "bg-white text-zinc-900 shadow-sm"
-                    : "text-zinc-600 hover:text-zinc-900"
-                }`}
-              >
-                {l.label}
-              </button>
-            ))}
-          </div>
-        )}
+      <div className="mb-6">
+        <h1 className="text-xl font-semibold text-zinc-900">Homepage CMS</h1>
+        <p className="text-sm text-zinc-500 mt-0.5">
+          Manage the content of your storefront homepage sections
+        </p>
       </div>
-
-      {isNonDefault && (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-          Editing content in a non-English language. Empty fields fall back to
-          English on the storefront. Images and links are shared with English —
-          edit those on the EN tab.
-        </div>
-      )}
 
       <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
         <Tabs.List className="mb-6 flex gap-1 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-100 p-1">
@@ -195,44 +143,39 @@ export default function CmsPage() {
           ))}
         </Tabs.List>
 
-        {SECTIONS.map(({ key, Component, selfManaged }) => {
-          const ck = cacheKey(key, locale);
-          return (
-            <Tabs.Content key={key} value={key}>
-              <div className="rounded-xl border border-zinc-200 bg-white p-5">
-                {selfManaged ? (
-                  // Manages its own data + save button. `locale` is passed so
-                  // locale-aware self-managed tabs suffix their keys; locale-
-                  // invariant ones (product refs) simply ignore it.
-                  <Component locale={locale} />
-                ) : loadingKeys[ck] ? (
-                  <div className="py-12 text-center text-sm text-zinc-400">
-                    Loading...
-                  </div>
-                ) : (
-                  <Component
-                    data={sectionData[ck] || {}}
-                    onChange={(newData) => handleChange(key, newData)}
-                  />
-                )}
-              </div>
-
-              {/* Shared save button (self-managed tabs render their own) */}
-              {!selfManaged && (
-                <div className="mt-4 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => handleSave(key)}
-                    disabled={savingKey === ck || loadingKeys[ck]}
-                    className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50"
-                  >
-                    {savingKey === ck ? "Saving..." : "Save Section"}
-                  </button>
+        {SECTIONS.map(({ key, Component, selfManaged }) => (
+          <Tabs.Content key={key} value={key}>
+            <div className="rounded-xl border border-zinc-200 bg-white p-5">
+              {selfManaged ? (
+                // Manages its own data + save button.
+                <Component />
+              ) : loadingKeys[key] ? (
+                <div className="py-12 text-center text-sm text-zinc-400">
+                  Loading...
                 </div>
+              ) : (
+                <Component
+                  data={sectionData[key] || {}}
+                  onChange={(newData) => handleChange(key, newData)}
+                />
               )}
-            </Tabs.Content>
-          );
-        })}
+            </div>
+
+            {/* Shared save button (self-managed tabs render their own) */}
+            {!selfManaged && (
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => handleSave(key)}
+                  disabled={savingKey === key || loadingKeys[key]}
+                  className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {savingKey === key ? "Saving..." : "Save Section"}
+                </button>
+              </div>
+            )}
+          </Tabs.Content>
+        ))}
       </Tabs.Root>
     </div>
   );

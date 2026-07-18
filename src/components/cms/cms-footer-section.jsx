@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { adminCmsApi } from "@/lib/endpoints";
 import { useToast } from "@/context/toast-context";
-import { DEFAULT_LOCALE, localeKey } from "@/lib/locales";
 import CmsFooterEditor from "./cms-footer-editor";
 import CmsLegalEditor from "./cms-legal-editor";
 
@@ -40,28 +39,19 @@ function Block({ title, description, saving, onSave, children }) {
   );
 }
 
-export default function CmsFooterSection({ locale = DEFAULT_LOCALE }) {
+export default function CmsFooterSection() {
   const { showToast } = useToast();
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState(null);
 
-  // `data` holds the CURRENT locale's three sections, keyed by base key. Reload
-  // whenever the locale changes; a non-English locale with nothing saved yet is
-  // seeded from English (translate-in-place), matching the main CMS page.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
 
     Promise.all(
       KEYS.map(async (base) => {
-        const backendKey = localeKey(base, locale);
-        let doc = await adminCmsApi.getSection(backendKey).catch(() => null);
-        const isEmpty =
-          !doc || (typeof doc === "object" && Object.keys(doc).length === 0);
-        if (locale !== DEFAULT_LOCALE && isEmpty) {
-          doc = await adminCmsApi.getSection(base).catch(() => ({}));
-        }
+        const doc = await adminCmsApi.getSection(base).catch(() => null);
         return [base, doc || {}];
       })
     )
@@ -78,7 +68,7 @@ export default function CmsFooterSection({ locale = DEFAULT_LOCALE }) {
     return () => {
       cancelled = true;
     };
-  }, [locale, showToast]);
+  }, [showToast]);
 
   const setKey = (key, value) =>
     setData((prev) => ({ ...prev, [key]: value }));
@@ -86,10 +76,7 @@ export default function CmsFooterSection({ locale = DEFAULT_LOCALE }) {
   const save = async (base) => {
     setSavingKey(base);
     try {
-      const updated = await adminCmsApi.updateSection(
-        localeKey(base, locale),
-        data[base]
-      );
+      const updated = await adminCmsApi.updateSection(base, data[base]);
       setKey(base, updated);
       showToast("Saved", "success");
     } catch {
