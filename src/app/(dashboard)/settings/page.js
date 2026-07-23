@@ -20,7 +20,7 @@ const DEFAULTS = {
   },
   referral_config: {
     enabled: true,
-    rewardMode: "loyalty_points_referrer",
+    rewardMode: "loyalty_points_both",
     referrerRewardValue: 200,
     refereeRewardValue: 100,
     referrerCouponDiscountType: "fixed",

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/auth-context";
 import Sidebar from "@/components/sidebar";
 import Topbar from "@/components/topbar";
-import QuickActions from "@/components/quick-actions";
+// import QuickActions from "@/components/quick-actions";
 
 export default function DashboardLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -37,7 +37,7 @@ export default function DashboardLayout({ children }) {
           {children}
         </main>
       </div>
-      <QuickActions />
+      {/* <QuickActions /> */}
     </div>
   );
 }

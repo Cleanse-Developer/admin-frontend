@@ -10,6 +10,7 @@ import {
   DotsVerticalIcon,
   CrossCircledIcon,
   FileTextIcon,
+  MixerHorizontalIcon,
 } from "@radix-ui/react-icons";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
@@ -255,13 +256,22 @@ export default function BlogsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold text-zinc-900">Blog Posts</h1>
-        <Link
-          href="/blogs/new"
-          className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800"
-        >
-          <PlusIcon className="h-4 w-4" />
-          New Post
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/blogs/customize"
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+          >
+            <MixerHorizontalIcon className="h-4 w-4" />
+            Customize Page
+          </Link>
+          <Link
+            href="/blogs/new"
+            className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800"
+          >
+            <PlusIcon className="h-4 w-4" />
+            New Post
+          </Link>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

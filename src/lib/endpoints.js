@@ -323,6 +323,14 @@ export const adminSpecialCouponApi = {
     api.get(`/admin/special-coupons/${id}/usage`).then((r) => r.data.data),
 };
 
+export const adminContactApi = {
+  list: (params) =>
+    api.get("/admin/contact", { params }).then((r) => r.data.data),
+  updateStatus: (id, status) =>
+    api.patch(`/admin/contact/${id}/status`, { status }).then((r) => r.data.data),
+  delete: (id) => api.delete(`/admin/contact/${id}`).then((r) => r.data),
+};
+
 export const adminReviewApi = {
   list: (params) =>
     api.get("/admin/reviews", { params }).then((r) => r.data.data),

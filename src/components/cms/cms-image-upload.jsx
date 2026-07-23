@@ -89,6 +89,12 @@ export default function CmsImageUpload({
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+  // Which crop shape is active in the modal. Defaults to the section's own
+  // aspectRatio (so the initial crop is unchanged from before); "free" uses the
+  // image's natural proportions. Purely modal-local — the editor still passes its
+  // own aspectRatio, so other sections/products are unaffected.
+  const [cropAspect, setCropAspect] = useState(aspectRatio);
+  const [naturalAspect, setNaturalAspect] = useState(null);
 
   const onCropComplete = useCallback((_, croppedPixels) => {
     setCroppedAreaPixels(croppedPixels);
@@ -130,6 +136,9 @@ export default function CmsImageUpload({
         setCrop({ x: 0, y: 0 });
         setZoom(1);
         setRotation(0);
+        // Reset the shape to the section's ratio on each new file.
+        setCropAspect(aspectRatio);
+        setNaturalAspect(null);
       };
       reader.readAsDataURL(file);
       return;
@@ -196,6 +205,37 @@ export default function CmsImageUpload({
   const variantCount = value?.sources
     ? Object.values(value.sources).filter((s) => s?.url).length
     : 0;
+
+  // Crop shapes offered in the modal: the section's own ratio first (matches the
+  // storefront slot this image fills — recommended), then Free (the image's own
+  // proportions), then a few common ratios (skipping any that equals the section
+  // ratio). The editor's aspectRatio prop is unchanged, so this only adds choices.
+  const PRESET_RATIOS = [
+    [1, 1],
+    [4, 3],
+    [3, 4],
+    [16, 9],
+  ];
+  const aspectChoices = [];
+  if (aspectRatio) {
+    aspectChoices.push({
+      key: "slot",
+      label: `Fit slot · ${ratioLabel(aspectRatio)}`,
+      value: aspectRatio,
+    });
+  }
+  aspectChoices.push({ key: "free", label: "Free", value: "free" });
+  for (const [w, h] of PRESET_RATIOS) {
+    const v = w / h;
+    if (!aspectRatio || Math.abs(v - aspectRatio) > 0.005) {
+      aspectChoices.push({ key: `${w}x${h}`, label: `${w}:${h}`, value: v });
+    }
+  }
+  // "free" resolves to the image's real proportions once known (no forced crop).
+  const resolvedAspect =
+    cropAspect === "free"
+      ? naturalAspect || aspectRatio || 4 / 3
+      : cropAspect || aspectRatio || 4 / 3;
 
   return (
     <>
@@ -333,8 +373,9 @@ export default function CmsImageUpload({
                 Crop Image
               </h3>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Adjust the crop area to fit the required{" "}
-                {ratioLabel(aspectRatio)} ratio
+                Pick a crop shape, then adjust. <strong>Fit slot</strong> matches
+                where this image appears on the site; <strong>Free</strong> keeps
+                the image&apos;s own proportions.
               </p>
             </div>
             <div className="relative h-80 bg-zinc-100">
@@ -343,12 +384,33 @@ export default function CmsImageUpload({
                 crop={crop}
                 zoom={zoom}
                 rotation={rotation}
-                aspect={aspectRatio}
+                aspect={resolvedAspect}
+                onMediaLoaded={(m) =>
+                  setNaturalAspect(m.naturalWidth / m.naturalHeight)
+                }
                 onCropChange={setCrop}
                 onZoomChange={setZoom}
                 onRotationChange={setRotation}
                 onCropComplete={onCropComplete}
               />
+            </div>
+            {/* Crop-shape selector */}
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-zinc-200 px-5 py-2.5">
+              <span className="mr-1 text-xs font-medium text-zinc-500">Shape:</span>
+              {aspectChoices.map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setCropAspect(opt.value)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    cropAspect === opt.value
+                      ? "bg-zinc-900 text-white"
+                      : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
             <div className="flex flex-col gap-2 px-5 py-2">
               <label className="flex items-center gap-3 text-xs text-zinc-500">
