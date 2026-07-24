@@ -17,6 +17,7 @@ import { useToast } from "@/context/toast-context";
 import ImageUpload from "@/components/image-upload";
 import SizeVariants from "@/components/size-variants";
 import TabHighlightsEditor from "@/components/tab-highlights-editor";
+import ListingContentEditor from "@/components/listing-content-editor";
 
 const TAG_OPTIONS = ["Face Care", "Hair Care", "Body Care"];
 
@@ -137,6 +138,7 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
   const [optimize, setOptimize] = useState(true);
   const [categories, setCategories] = useState([]);
   const [tabHighlights, setTabHighlights] = useState(() => initialData?.tabHighlights || {});
+  const [listingContent, setListingContent] = useState(() => initialData?.listingContent || {});
   const [errors, setErrors] = useState({});
   const [slugManual, setSlugManual] = useState(!!initialData);
   const [activeTab, setActiveTab] = useState("general");
@@ -283,6 +285,10 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
     if (hasHighlights) {
       fd.append("tabHighlights", JSON.stringify(tabHighlights));
     }
+
+    // Listing content (storefront hero title/description + chip rows) as JSON.
+    // Always send (even when empty) so clearing every field persists.
+    fd.append("listingContent", JSON.stringify(listingContent || {}));
 
     // Images: a metadata array describing every image (kept + new) plus the new
     // base/variant files appended under unique keys the metadata references.
@@ -853,6 +859,8 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
           </div>
 
           <TabHighlightsEditor value={tabHighlights} onChange={setTabHighlights} />
+
+          <ListingContentEditor value={listingContent} onChange={setListingContent} />
 
           <div className="rounded-lg border border-zinc-200 bg-white p-6">
             <h2 className="text-base font-semibold text-zinc-900">SEO</h2>
