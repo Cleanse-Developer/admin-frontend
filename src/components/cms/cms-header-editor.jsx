@@ -7,6 +7,7 @@ import {
   ChevronDownIcon,
 } from "@radix-ui/react-icons";
 import CmsImageUpload from "./cms-image-upload";
+import Toggle from "@/components/toggle";
 
 const inputClass =
   "w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none transition-colors";
@@ -48,6 +49,13 @@ export default function CmsHeaderEditor({ data, onChange }) {
 
   return (
     <div className="space-y-5">
+      <Toggle
+        checked={data.showLocaleSelector !== false}
+        onCheckedChange={(v) => update("showLocaleSelector", v)}
+        label="Show language & currency selector"
+        description="Hides the EN · ₹ capsule in the storefront header."
+      />
+
       <CmsImageUpload
         label="Logo Image (leave empty for default)"
         value={data.logoImage}

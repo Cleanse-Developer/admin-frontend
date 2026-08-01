@@ -253,6 +253,17 @@ export default function SettingsPage() {
               />
             </div>
           </div>
+
+          <div className="mt-4 border-t border-zinc-100 pt-4">
+            <Toggle
+              checked={loyaltyConfig.showInProfile !== false}
+              onCheckedChange={(val) =>
+                setLoyaltyConfig({ ...loyaltyConfig, showInProfile: val })
+              }
+              label="Show points in customer profile"
+              description="Hides the points balance and history on the storefront profile page. Does not stop points being earned — turn off Enabled for that."
+            />
+          </div>
         </div>
 
         {/* Section 6: Referral Program Config */}
