@@ -20,10 +20,9 @@ import {
 const MAINTENANCE_DEFAULTS = {
   enabled: false,
   eyebrow: "Pardon the pause",
-  heading: "We are tending\nto something",
-  message:
-    "Our shelves are being restocked and our rituals refined. Cleanse will reopen shortly.",
-  revisitNote: "Please look in on us again in a little while.",
+  heading: "We'll be back\nvery soon",
+  message: "Our shelves are being restocked and our rituals refined.",
+  revisitNote: "Do look in on us again in a little while.",
   email: "",
   phone: "",
   whatsapp: "",
@@ -338,24 +337,25 @@ function MaintenanceSection() {
             />
             <TextArea
               label="Heading"
-              hint="Press Enter for a line break — each line animates in on its own."
+              hint="The biggest text on the page, and the only line most visitors will read. Make it say the whole thing on its own. Press Enter for a line break — each line animates in separately."
               rows={2}
               value={cfg.heading}
               onChange={(v) => update("heading", v)}
-              placeholder={"We are tending\nto something"}
+              placeholder={"We'll be back\nvery soon"}
             />
             <TextArea
               label="What's happening"
-              hint="Explain the situation in a sentence or two."
+              hint="One or two sentences on the reason. Don't repeat the heading — this sits under it in smaller text."
               rows={3}
               value={cfg.message}
               onChange={(v) => update("message", v)}
             />
             <TextField
               label="Come-back-later line"
+              hint="A small closing note, shown quietest of the three."
               value={cfg.revisitNote}
               onChange={(v) => update("revisitNote", v)}
-              placeholder="Please look in on us again in a little while."
+              placeholder="Do look in on us again in a little while."
             />
           </div>
 
