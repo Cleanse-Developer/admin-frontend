@@ -20,7 +20,7 @@ import {
 const MAINTENANCE_DEFAULTS = {
   enabled: false,
   eyebrow: "Pardon the pause",
-  heading: "We'll be back\nvery soon",
+  heading: "We'll be back very soon",
   message: "Our shelves are being restocked and our rituals refined.",
   revisitNote: "Do look in on us again in a little while.",
   email: "",
@@ -341,7 +341,7 @@ function MaintenanceSection() {
               rows={2}
               value={cfg.heading}
               onChange={(v) => update("heading", v)}
-              placeholder={"We'll be back\nvery soon"}
+              placeholder="We'll be back very soon"
             />
             <TextArea
               label="What's happening"
