@@ -1,0 +1,208 @@
+name: Build and deploy (admin)
+
+# Every push to main is guarded, built and (once AWS is configured) deployed to EC2.
+# Pull requests only get the guard + build (no secrets, no deploy).
+# Setup instructions: docs/DEPLOY.md
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  build:
+    name: Guard and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Plain shell, before any npm/node code runs. See scripts/ci-guard.sh.
+      - name: Guard
+        run: bash scripts/ci-guard.sh
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      # The admin has no committed env files, so its API address must come from a
+      # repository variable; a local .env.local (LAN address) can no longer leak into a
+      # release. Pull requests (and Dependabot) only check that it builds.
+      - name: Build-time public config
+        env:
+          V_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+        run: |
+          if [ -z "$V_API_URL" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+              V_API_URL="https://example.invalid/api"
+              echo "::notice::NEXT_PUBLIC_API_URL not available on this PR run; using a placeholder (build check only)"
+            else
+              echo "::error::repository variable NEXT_PUBLIC_API_URL is not set (docs/DEPLOY.md)"; exit 1
+            fi
+          fi
+          if [[ "$V_API_URL" != https://* ]] || [[ "$V_API_URL" =~ (localhost|127\.0\.0\.1|192\.168\.|(^|/)10\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            echo "::error::NEXT_PUBLIC_API_URL must be a public https:// URL (got '$V_API_URL')"; exit 1
+          fi
+          echo "NEXT_PUBLIC_API_URL=$V_API_URL" >> "$GITHUB_ENV"
+      - name: Build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          # Start from a clean output folder so nothing stale can end up in the release.
+          rm -rf .next
+          npm run build
+
+      - name: Package release
+        run: bash scripts/package-release.sh release.tgz
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ github.sha }}
+          path: release.tgz
+          retention-days: 14
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy to EC2
+    needs: build
+    # Off until you set the repository variable DEPLOY_ENABLED=true (docs/DEPLOY.md).
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # lets this job assume the AWS role through GitHub's OIDC token
+    steps:
+      # public/ is ~200 MB and rarely changes, so it is not part of the build artifact.
+      # Check out only that folder. This step must come first: checkout cleans the
+      # workspace, which would delete the artifact if it were downloaded before it.
+      - name: Check out public/ only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: public
+          sparse-checkout-cone-mode: true
+          persist-credentials: false
+
+      - name: Download release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ github.sha }}
+
+      - name: Configure AWS credentials (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload release and create a 15-minute download link
+        id: s3
+        env:
+          BUCKET: ${{ vars.DEPLOY_BUCKET }}
+          APP_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          KEY="releases/${APP_NAME}/${GITHUB_SHA}.tgz"
+          aws s3 cp release.tgz "s3://${BUCKET}/${KEY}" --only-show-errors
+          URL="$(aws s3 presign "s3://${BUCKET}/${KEY}" --expires-in 900)"
+          echo "::add-mask::${URL}"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+
+          # public/ is content-addressed by its git tree hash: uploaded once per change,
+          # and the server only downloads it when the hash differs from its last deploy.
+          if [ -d public ]; then
+            PUB_HASH="$(git rev-parse HEAD:public)"
+            PUB_KEY="releases/${APP_NAME}/public-${PUB_HASH}.tgz"
+            if aws s3api head-object --bucket "$BUCKET" --key "$PUB_KEY" >/dev/null 2>&1; then
+              echo "public/ ${PUB_HASH} is already in S3"
+            else
+              echo "uploading public/ ${PUB_HASH}"
+              tar -C public -czf public.tgz .
+              aws s3 cp public.tgz "s3://${BUCKET}/${PUB_KEY}" --only-show-errors
+            fi
+            PUB_URL="$(aws s3 presign "s3://${BUCKET}/${PUB_KEY}" --expires-in 900)"
+            echo "::add-mask::${PUB_URL}"
+            echo "public_url=${PUB_URL}" >> "$GITHUB_OUTPUT"
+            echo "public_hash=${PUB_HASH}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy through SSM
+        env:
+          RELEASE_URL: ${{ steps.s3.outputs.url }}
+          PUBLIC_URL: ${{ steps.s3.outputs.public_url }}
+          PUBLIC_HASH: ${{ steps.s3.outputs.public_hash }}
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          APP_DIR: ${{ vars.APP_DIR }}
+          APP_USER: ${{ vars.APP_USER || 'ubuntu' }}
+          PM2_PROCESS: ${{ vars.PM2_PROCESS }}
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
+          APP_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          for v in INSTANCE_ID APP_DIR PM2_PROCESS HEALTH_URL; do
+            [ -n "${!v}" ] || { echo "::error::repository variable for $v is not set (docs/DEPLOY.md)"; exit 1; }
+          done
+          q() { printf '%q' "$1"; }
+
+          # SSM runs this as root. The shebang matters: without it SSM uses /bin/sh (dash),
+          # which has no `pipefail`.
+          SCRIPT="$(cat <<EOF
+          #!/bin/bash
+          set -euo pipefail
+          T="\$(mktemp -d)"
+          trap 'rm -rf "\$T"' EXIT
+          curl -fsSL --retry 3 --retry-delay 2 -o "\$T/release.tgz" $(q "$RELEASE_URL")
+          tar -xzf "\$T/release.tgz" -C "\$T"
+          chown -R $(q "$APP_USER") "\$T"
+          sudo -u $(q "$APP_USER") -H env APP_DIR=$(q "$APP_DIR") PM2_PROCESS=$(q "$PM2_PROCESS") HEALTH_URL=$(q "$HEALTH_URL") PUBLIC_URL=$(q "$PUBLIC_URL") PUBLIC_HASH=$(q "$PUBLIC_HASH") bash "\$T/deploy/deploy-remote.sh" "\$T"
+          EOF
+          )"
+
+          PARAMS="$(jq -cn --arg s "$SCRIPT" '{commands: [$s], executionTimeout: ["900"]}')"
+          CMD_ID="$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy ${APP_NAME} ${GITHUB_SHA::7}" \
+            --timeout-seconds 900 \
+            --parameters "$PARAMS" \
+            --query 'Command.CommandId' --output text)"
+          echo "SSM command: $CMD_ID"
+
+          deadline=$((SECONDS + 900))
+          while :; do
+            STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query Status --output text 2>/dev/null || echo Pending)"
+            case "$STATUS" in Success|Failed|Cancelled|TimedOut|Cancelling) break ;; esac
+            if [ "$SECONDS" -ge "$deadline" ]; then echo "::error::timed out waiting for SSM"; exit 1; fi
+            sleep 5
+          done
+
+          echo "----- server output -----"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query StandardOutputContent --output text
+          ERR="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query StandardErrorContent --output text)"
+          if [ -n "$ERR" ] && [ "$ERR" != "None" ]; then echo "----- server stderr -----"; echo "$ERR"; fi
+          echo "final status: $STATUS"
+          [ "$STATUS" = "Success" ]
