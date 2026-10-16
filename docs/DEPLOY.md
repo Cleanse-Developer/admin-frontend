@@ -123,8 +123,14 @@ sha256sum package-lock.json | cut -d' ' -f1 > .deploy-lock-hash
 
 ### 4. First deploy
 
-Set `DEPLOY_ENABLED=true`, then Actions, "Build and deploy", **Run workflow**. The log
-shows the server output. A failed health check rolls back on its own and fails the run.
+**Dry run first** (works even while `DEPLOY_ENABLED` is unset): Actions, "Build and deploy",
+**Run workflow**, tick **Dry run**. It builds, uploads to S3, and runs the real deploy script on the
+server, which downloads and inspects the release, prints what it *would* do, and exits without
+changing anything. A green dry run proves the role, bucket, SSM and the server prerequisites.
+
+Then set `DEPLOY_ENABLED=true`; the next push to `main` (or **Run workflow** without the tick)
+deploys for real. The log shows the server output. A failed health check rolls back on its own
+and fails the run.
 
 ---
 
