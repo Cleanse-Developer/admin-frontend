@@ -1,0 +1,5 @@
+# Shell scripts and CI files run on Linux (runner + EC2): always LF, whatever the checkout OS.
+*.sh text eol=lf
+.github/** text eol=lf
+deploy/** text eol=lf
+scripts/** text eol=lf
