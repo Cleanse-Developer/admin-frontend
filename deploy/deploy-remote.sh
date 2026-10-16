@@ -21,6 +21,8 @@ HEALTH_WAIT="${HEALTH_WAIT:-2}"
 # when that hash differs from the one recorded by the previous deploy.
 PUBLIC_URL="${PUBLIC_URL:-}"
 PUBLIC_HASH="${PUBLIC_HASH:-}"
+# DRY_RUN=1: download and inspect the release, report what would happen, change NOTHING.
+DRY_RUN="${DRY_RUN:-}"
 
 # node / pm2 installed through nvm are not on PATH in a non-interactive shell.
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
@@ -51,6 +53,19 @@ fi
 # 1. Dependencies, only when the lockfile changed, installed into a staging dir first.
 want="$(sha256sum "$REL/package-lock.json" | cut -d' ' -f1)"
 have="$(cat .deploy-lock-hash 2>/dev/null || true)"
+
+if [ "$DRY_RUN" = "1" ]; then
+  log "DRY RUN - nothing in $APP_DIR will be changed"
+  log "new .next: $(du -sh "$REL/.next" | cut -f1)   live .next: $(du -sh .next 2>/dev/null | cut -f1)"
+  if [ -d "$REL/public" ]; then log "public/ would be replaced ($(du -sh "$REL/public" | cut -f1) downloaded)"; else log "public/ would stay as it is"; fi
+  if [ -d node_modules ] && [ "$want" = "$have" ]; then log "dependencies would be kept"; else log "dependencies would be reinstalled (lockfile hash differs or none recorded)"; fi
+  log "free disk here: $(df -h . | awk 'NR==2{print $4}')"
+  if "$PM2" describe "$PM2_PROCESS" >/dev/null 2>&1; then log "pm2 process '$PM2_PROCESS' exists"; else log "pm2 process '$PM2_PROCESS' NOT FOUND"; exit 1; fi
+  if curl -fsS -o /dev/null --max-time 5 "$HEALTH_URL"; then log "health URL answers right now: $HEALTH_URL"; else log "health URL does NOT answer right now: $HEALTH_URL"; exit 1; fi
+  log "dry run OK"
+  exit 0
+fi
+
 deps_swapped=0
 if [ -d node_modules ] && [ "$want" = "$have" ]; then
   log "dependencies unchanged"

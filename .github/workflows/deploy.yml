@@ -10,6 +10,11 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: build, upload and run the deploy script on the server WITHOUT changing anything there (tests the AWS wiring)"
+        type: boolean
+        default: false
 
 concurrency:
   group: build-deploy-${{ github.ref }}
@@ -86,8 +91,9 @@ jobs:
   deploy:
     name: Deploy to EC2
     needs: build
-    # Off until you set the repository variable DEPLOY_ENABLED=true (docs/DEPLOY.md).
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    # Off until you set the repository variable DEPLOY_ENABLED=true (docs/DEPLOY.md). A manual
+    # dry run (Run workflow, tick 'Dry run') works even while it is off: it changes nothing.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && (vars.DEPLOY_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.dry_run))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: production
@@ -152,6 +158,7 @@ jobs:
           RELEASE_URL: ${{ steps.s3.outputs.url }}
           PUBLIC_URL: ${{ steps.s3.outputs.public_url }}
           PUBLIC_HASH: ${{ steps.s3.outputs.public_hash }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
           INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
           APP_DIR: ${{ vars.APP_DIR }}
           APP_USER: ${{ vars.APP_USER || 'ubuntu' }}
@@ -175,7 +182,7 @@ jobs:
           curl -fsSL --retry 3 --retry-delay 2 -o "\$T/release.tgz" $(q "$RELEASE_URL")
           tar -xzf "\$T/release.tgz" -C "\$T"
           chown -R $(q "$APP_USER") "\$T"
-          sudo -u $(q "$APP_USER") -H env APP_DIR=$(q "$APP_DIR") PM2_PROCESS=$(q "$PM2_PROCESS") HEALTH_URL=$(q "$HEALTH_URL") PUBLIC_URL=$(q "$PUBLIC_URL") PUBLIC_HASH=$(q "$PUBLIC_HASH") bash "\$T/deploy/deploy-remote.sh" "\$T"
+          sudo -u $(q "$APP_USER") -H env APP_DIR=$(q "$APP_DIR") PM2_PROCESS=$(q "$PM2_PROCESS") HEALTH_URL=$(q "$HEALTH_URL") PUBLIC_URL=$(q "$PUBLIC_URL") PUBLIC_HASH=$(q "$PUBLIC_HASH") DRY_RUN=$(q "$DRY_RUN") bash "\$T/deploy/deploy-remote.sh" "\$T"
           EOF
           )"
 
