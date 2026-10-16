@@ -463,6 +463,14 @@ export default function CmsGenesisEditor({ data, onChange }) {
           addLabel="Add column"
           multiline
         />
+        <StringList
+          label="Column Headings"
+          hint="Optional. One sub-header per column, shown above its paragraph, in the same order as the columns."
+          value={data.manifestoColumnHeadings}
+          onChange={(v) => update("manifestoColumnHeadings", v)}
+          placeholder="Rooted in Ayurvedic knowledge"
+          addLabel="Add heading"
+        />
       </div>
 
       {/* Journey */}
@@ -520,6 +528,13 @@ export default function CmsGenesisEditor({ data, onChange }) {
                 value={j.image}
                 onChange={(v) => updateItem("journey", journey, i, { image: v })}
                 aspectRatio={4 / 3}
+              />
+              <TextField
+                label="Label"
+                hint="Optional small caption above the title, e.g. SOURCE."
+                value={j.label}
+                onChange={(v) => updateItem("journey", journey, i, { label: v })}
+                placeholder="SOURCE"
               />
               <TextField
                 label="Title"
