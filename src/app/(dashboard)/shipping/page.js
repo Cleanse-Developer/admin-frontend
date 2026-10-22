@@ -12,6 +12,7 @@ import { useToast } from "@/context/toast-context";
 import ConfirmDialog from "@/components/confirm-dialog";
 import StatusBadge from "@/components/status-badge";
 import ZoneForm from "./zone-form";
+import ShiprocketRates from "./shiprocket-rates";
 
 export default function ShippingZonesPage() {
   const { showToast } = useToast();
@@ -223,6 +224,9 @@ export default function ShippingZonesPage() {
           </button>
         </div>
       </div>
+
+      {/* Delivery charge mode (static vs live Shiprocket) + live Shiprocket rates */}
+      <ShiprocketRates defaultPincode={zones.find((z) => z.pincodes?.length)?.pincodes?.[0]} />
 
       {/* Table */}
       {loading ? (

@@ -144,9 +144,11 @@ export const adminShiprocketApi = {
   couriers: () =>
     api.get("/admin/shiprocket/couriers").then((r) => r.data.data),
   wallet: () => api.get("/admin/shiprocket/wallet").then((r) => r.data.data),
-  checkServiceability: (pincode, cod, weight) =>
+  // Live Shiprocket rates for a pincode, plus a `preview` of what a customer would
+  // pay under static vs dynamic charging (orderValue in rupees, default 0).
+  checkServiceability: (pincode, cod, weight, orderValue) =>
     api
-      .post("/admin/shiprocket/serviceability", { pincode, cod, weight })
+      .post("/admin/shiprocket/serviceability", { pincode, cod, weight, orderValue })
       .then((r) => r.data.data),
   getMode: () => api.get("/admin/shiprocket/mode").then((r) => r.data.data),
   setMode: (mode) =>
@@ -178,6 +180,10 @@ export const adminShippingApi = {
   update: (id, data) =>
     api.patch(`/admin/shipping/${id}`, data).then((r) => r.data.data),
   delete: (id) => api.delete(`/admin/shipping/${id}`).then((r) => r.data),
+  // Delivery charge mode: "static" (admin rates) or "dynamic" (live Shiprocket rates).
+  getChargeMode: () => api.get("/admin/shipping/charge-mode").then((r) => r.data.data),
+  setChargeMode: (config) =>
+    api.patch("/admin/shipping/charge-mode", config).then((r) => r.data.data),
 };
 
 export const adminCouponApi = {
