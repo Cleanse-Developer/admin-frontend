@@ -73,6 +73,9 @@ export default function CmsImageUpload({
   label,
   type = "image",
   aspectRatio,
+  // Responsive desktop/tablet/mobile variants. On by default for the CMS
+  // sections; turn off for slots that have a single image (product highlight cards).
+  variants = true,
 }) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -340,7 +343,7 @@ export default function CmsImageUpload({
         </div>
 
         {/* Responsive variants (optional) — image slots only */}
-        {!isVideo && hasValue && (
+        {variants && !isVideo && hasValue && (
           <div className="mt-3 w-full max-w-md">
             <button
               type="button"

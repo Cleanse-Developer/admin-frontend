@@ -8,7 +8,7 @@ const inputClass =
 
 // Chip-list field: type + Enter/comma to add, click × to remove. Mirrors the
 // skinType/concerns inputs already used in the form.
-function ChipField({ label, hint, items, onChange, placeholder }) {
+export function ChipField({ label, hint, items, onChange, placeholder }) {
   const [input, setInput] = useState("");
   const list = items || [];
 

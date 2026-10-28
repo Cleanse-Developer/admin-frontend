@@ -18,6 +18,7 @@ import ImageUpload from "@/components/image-upload";
 import SizeVariants from "@/components/size-variants";
 import TabHighlightsEditor from "@/components/tab-highlights-editor";
 import ListingContentEditor from "@/components/listing-content-editor";
+import HighlightsEditor, { cleanHighlights, validateHighlights } from "@/components/highlights-editor";
 
 const TAG_OPTIONS = ["Face Care", "Hair Care", "Body Care"];
 
@@ -56,6 +57,7 @@ const FIELD_TAB = {
   images: "media",
   sizes: "media",
   ingredients: "content",
+  highlights: "content",
   seo: "content",
 };
 
@@ -139,6 +141,7 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
   const [categories, setCategories] = useState([]);
   const [tabHighlights, setTabHighlights] = useState(() => initialData?.tabHighlights || {});
   const [listingContent, setListingContent] = useState(() => initialData?.listingContent || {});
+  const [highlights, setHighlights] = useState(() => initialData?.highlights || {});
   const [errors, setErrors] = useState({});
   const [slugManual, setSlugManual] = useState(!!initialData);
   const [activeTab, setActiveTab] = useState("general");
@@ -208,6 +211,9 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
     else if (Number(form.price) < 0) e.price = "Price must be 0 or more";
 
     if (!form.tag) e.tag = "Tag is required";
+
+    const highlightsError = validateHighlights(highlights);
+    if (highlightsError) e.highlights = highlightsError;
 
     return e;
   }
@@ -289,6 +295,10 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
     // Listing content (storefront hero title/description + chip rows) as JSON.
     // Always send (even when empty) so clearing every field persists.
     fd.append("listingContent", JSON.stringify(listingContent || {}));
+
+    // Product-detail highlight cards. Always send (even when empty) so removing
+    // every card persists, the backend only updates fields that arrive.
+    fd.append("highlights", JSON.stringify(cleanHighlights(highlights)));
 
     // Images: a metadata array describing every image (kept + new) plus the new
     // base/variant files appended under unique keys the metadata references.
@@ -861,6 +871,13 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
           <TabHighlightsEditor value={tabHighlights} onChange={setTabHighlights} />
 
           <ListingContentEditor value={listingContent} onChange={setListingContent} />
+
+          <HighlightsEditor
+            value={highlights}
+            onChange={setHighlights}
+            error={errors.highlights}
+            productName={form.name}
+          />
 
           <div className="rounded-lg border border-zinc-200 bg-white p-6">
             <h2 className="text-base font-semibold text-zinc-900">SEO</h2>
