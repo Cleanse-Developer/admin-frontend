@@ -16,7 +16,7 @@ import { slugify } from "@/lib/slugify";
 import { useToast } from "@/context/toast-context";
 import ImageUpload from "@/components/image-upload";
 import SizeVariants from "@/components/size-variants";
-import TabHighlightsEditor from "@/components/tab-highlights-editor";
+import TabHighlightsEditor, { cleanTabHighlights } from "@/components/tab-highlights-editor";
 import ListingContentEditor from "@/components/listing-content-editor";
 import HighlightsEditor, { cleanHighlights, validateHighlights } from "@/components/highlights-editor";
 
@@ -35,6 +35,7 @@ const INITIAL_FORM = {
   color: "",
   tag: "",
   category: "",
+  ingredientsIntro: "",
   ingredients: "",
   howToUse: "",
   values: "",
@@ -76,6 +77,7 @@ function initForm(d) {
     color: d.color || "",
     tag: d.tag || "",
     category: d.category?._id || "",
+    ingredientsIntro: d.ingredientsIntro || "",
     ingredients: d.ingredients || "",
     howToUse: d.howToUse || "",
     values: d.values || "",
@@ -289,8 +291,12 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
       (arr) => Array.isArray(arr) && arr.length > 0
     );
     if (hasHighlights) {
-      fd.append("tabHighlights", JSON.stringify(tabHighlights));
+      fd.append("tabHighlights", JSON.stringify(cleanTabHighlights(tabHighlights)));
     }
+
+    // Ingredients intro: always send (even when empty) so clearing it persists;
+    // the scalar loop above skips empty fields.
+    fd.append("ingredientsIntro", form.ingredientsIntro || "");
 
     // Listing content (storefront hero title/description + chip rows) as JSON.
     // Always send (even when empty) so clearing every field persists.
@@ -716,9 +722,14 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
             <div className="mt-4 flex flex-col gap-4">
               {[
                 {
+                  key: "ingredientsIntro",
+                  label: "Ingredients intro",
+                  placeholder: "A short paragraph shown above the ingredient icons (blank line = new paragraph)...",
+                },
+                {
                   key: "ingredients",
-                  label: "Ingredients",
-                  placeholder: "List of ingredients...",
+                  label: "Full ingredient list",
+                  placeholder: "Full composition. When ingredient descriptions are set, the product page tucks this behind \"View full ingredient list\".",
                 },
                 {
                   key: "howToUse",
@@ -727,8 +738,8 @@ export default function ProductForm({ initialData, onSubmit, isSubmitting }) {
                 },
                 {
                   key: "values",
-                  label: "Values / Benefits",
-                  placeholder: "Product benefits...",
+                  label: "Why it works",
+                  placeholder: "Why the formula works. Use \"TITLE - lead sentence. Detail.\" paragraphs for a headed row.",
                 },
                 {
                   key: "shippingInfo",

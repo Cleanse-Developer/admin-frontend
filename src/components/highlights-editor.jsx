@@ -11,8 +11,8 @@ import {
   inputClass,
 } from "@/components/cms/cms-editor-kit";
 
-// Mirrors the backend Product.highlights schema (max 3 cards, 6 chips each).
-export const MAX_HIGHLIGHT_CARDS = 3;
+// Mirrors the backend Product.highlights schema (max 4 cards, 6 chips each).
+export const MAX_HIGHLIGHT_CARDS = 4;
 const MAX_CHIPS = 6;
 
 const CTA_TARGETS = [

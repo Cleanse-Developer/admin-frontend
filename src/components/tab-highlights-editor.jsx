@@ -72,14 +72,41 @@ function IconPicker({ value, onChange }) {
 
 const TAB_KEYS = [
   { key: "ingredients", label: "Ingredients" },
-  { key: "values", label: "Our Values" },
+  { key: "values", label: "Why It Works" },
   { key: "howToUse", label: "How to Use" },
   { key: "shippingInfo", label: "Shipping & Returns" },
   { key: "policies", label: "Policies" },
 ];
 
+// Tabs whose items also carry a one-line description: the explainer under each
+// ingredient, and the sentence under each numbered step on How to Use.
+const DESCRIBED = {
+  ingredients: {
+    placeholder: "One-line explainer shown under this ingredient",
+    hint: "Each ingredient shows its icon, name and this description. Write the intro paragraph in Product Content > Ingredients intro.",
+  },
+  howToUse: {
+    placeholder: "The sentence shown under this step",
+    hint: "These show as numbered steps (01, 02, ...) in this order, with the label as the step name.",
+  },
+};
+
 const inputClass =
   "w-full rounded-lg border border-zinc-200 px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400";
+
+// What gets saved: blank descriptions are dropped, so items without one stay
+// exactly as they were before descriptions existed.
+export function cleanTabHighlights(value) {
+  const out = {};
+  for (const [group, items] of Object.entries(value || {})) {
+    if (!Array.isArray(items)) continue;
+    out[group] = items.map(({ icon, label, description }) => {
+      const text = typeof description === "string" ? description.trim() : "";
+      return { icon, label, ...(text ? { description: text } : {}) };
+    });
+  }
+  return out;
+}
 
 export default function TabHighlightsEditor({ value, onChange }) {
   const highlights = value || {};
@@ -141,28 +168,47 @@ export default function TabHighlightsEditor({ value, onChange }) {
         {TAB_KEYS.map(({ key }) => {
           if (activeTab !== key) return null;
           const items = highlights[key] || [];
+          const described = DESCRIBED[key];
           return (
             <div key={key} className="flex flex-col gap-2">
+              {described && <p className="text-xs text-zinc-400">{described.hint}</p>}
               {items.map((item, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <IconPicker
-                    value={item.icon}
-                    onChange={(iconId) => updateItem(key, i, "icon", iconId)}
-                  />
-                  <input
-                    type="text"
-                    value={item.label}
-                    onChange={(e) => updateItem(key, i, "label", e.target.value)}
-                    placeholder="Label text"
-                    className={inputClass}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeItem(key, i)}
-                    className="shrink-0 rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
-                  >
-                    <TrashIcon className="h-4 w-4" />
-                  </button>
+                <div key={i} className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2">
+                    {described && key === "howToUse" && (
+                      <span className="w-6 shrink-0 text-xs font-medium text-zinc-400">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                    )}
+                    <IconPicker
+                      value={item.icon}
+                      onChange={(iconId) => updateItem(key, i, "icon", iconId)}
+                    />
+                    <input
+                      type="text"
+                      value={item.label}
+                      onChange={(e) => updateItem(key, i, "label", e.target.value)}
+                      placeholder="Label text"
+                      className={inputClass}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeItem(key, i)}
+                      className="shrink-0 rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {described && (
+                    <textarea
+                      rows={2}
+                      value={item.description || ""}
+                      onChange={(e) => updateItem(key, i, "description", e.target.value)}
+                      placeholder={described.placeholder}
+                      maxLength={300}
+                      className={`${inputClass} ${key === "howToUse" ? "ml-8" : ""} w-auto`}
+                    />
+                  )}
                 </div>
               ))}
 
