@@ -1,0 +1,21 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "dependabot/github_actions/actions/download-artifact-8.0.2",
+    "dependabot/github_actions/actions/setup-node-7.1.0",
+    "dependabot/github_actions/actions/upload-artifact-7.0.2",
+    "main"
+  ],
+  "parent": {
+    "dependabot/github_actions/actions/download-artifact-8.0.2": "main",
+    "dependabot/github_actions/actions/setup-node-7.1.0": "main",
+    "dependabot/github_actions/actions/upload-artifact-7.0.2": "main",
+    "main": null
+  },
+  "order": [
+    "main",
+    "dependabot/github_actions/actions/download-artifact-8.0.2",
+    "dependabot/github_actions/actions/setup-node-7.1.0",
+    "dependabot/github_actions/actions/upload-artifact-7.0.2"
+  ]
+}
